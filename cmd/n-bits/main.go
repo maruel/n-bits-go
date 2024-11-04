@@ -10,9 +10,11 @@ import (
 	"flag"
 	"fmt"
 	"log/slog"
+	"math"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -23,7 +25,17 @@ import (
 	"github.com/nlpodyssey/safetensors"
 )
 
-func calcHistogram(t safetensors.TensorView) ([]int, []int, []int) {
+func effective(l []int) int {
+	o := 0
+	for _, v := range l {
+		if v != 0 {
+			o++
+		}
+	}
+	return o
+}
+
+func calcBF16Histogram(t safetensors.TensorView) ([]int, []int, []int) {
 	data := t.Data()
 	signs := [1 << 1]int{}
 	exponents := [1 << 8]int{}
@@ -39,11 +51,11 @@ func calcHistogram(t safetensors.TensorView) ([]int, []int, []int) {
 
 func unpackBFloat16(data []byte) (int, int, int) {
 	// Probably a bit faster than proper unpacking via encoding/binary.
+	b0 := data[0]
 	b1 := data[1]
-	b2 := data[0]
 	sign := (b1 & 0x80) >> 7
-	exponent := ((b1 & 0x7F) << 1) | ((b2 & 0x80) >> 7)
-	mantissa := b2 & 0x7F
+	exponent := ((b1 & 0x7F) << 1) | ((b0 & 0x80) >> 7)
+	mantissa := b0 & 0x7F
 	return int(sign), int(exponent), int(mantissa)
 }
 
@@ -70,21 +82,45 @@ func run(ctx context.Context, hfToken, hfRepo string) error {
 		if err != nil {
 			return err
 		}
-		//fmt.Printf("len = %d\n", s.Len())
-		//fmt.Printf("names = %+v\n", s.Names())
 		tensors := s.Tensors()
-		for i := range 3 {
-			t := tensors[i].TensorView
-			name := tensors[i].Name
+		maxNameLen := 0
+		maxSizeLen := 0
+		for _, tensor := range tensors {
+			if l := len(tensor.Name); l > maxNameLen {
+				maxNameLen = l
+			}
+			if l := len(strconv.Itoa(int(tensor.TensorView.DataLen() / 2))); l > maxSizeLen {
+				maxSizeLen = l
+			}
+		}
+		totalBytes := 0
+		bytesWasted := 0
+		for _, tensor := range tensors {
+			t := tensor.TensorView
+			name := tensor.Name
 			if dt := t.DType(); dt != safetensors.BF16 {
 				return fmt.Errorf("%s: can't handle dtype %s", name, dt)
 			}
-			fmt.Printf("Tensor %s\n", name)
-			signs, exponents, mantissas := calcHistogram(t)
-			fmt.Printf("- signs = %+v\n", signs)
-			fmt.Printf("- exponents = %+v\n", exponents)
-			fmt.Printf("- mantissas = %+v\n", mantissas)
+			numEl := int(t.DataLen() / 2)
+			signs, exponents, mantissas := calcBF16Histogram(t)
+			e_signs := effective(signs)
+			e_exponents := effective(exponents)
+			e_mantissas := effective(mantissas)
+			b_signs := math.Log2(float64(e_signs))
+			b_exponents := math.Log2(float64(e_exponents))
+			b_mantissas := math.Log2(float64(e_mantissas))
+			wasted := 1 - int(math.Ceil(b_signs)) + 8 - int(math.Ceil(b_exponents)) + 7 - int(math.Ceil(b_mantissas))
+			fmt.Printf("%-*s (%*d): sign=%d/%d(%5.1f%%) %3.1fbits  exponent=%3d/%d(%5.1f%%) %3.1fbits  mantissa=%3d/%d(%5.1f%%) %3.1fbits  wasted=%dbits\n",
+				maxNameLen, name, maxSizeLen, numEl,
+				e_signs, 1<<1, float64(e_signs)/float64(1<<1)*100., b_signs,
+				e_exponents, 1<<8, float64(e_exponents)/float64(1<<8)*100., b_exponents,
+				e_mantissas, 1<<7, float64(e_mantissas)/float64(1<<7)*100., b_mantissas,
+				wasted,
+			)
+			bytesWasted += wasted * numEl / 8
+			totalBytes += numEl * 2
 		}
+		fmt.Printf("%d bytes (%.1f%%) wasted on %d bytes total\n", bytesWasted, 100.*float64(bytesWasted)/float64(totalBytes), totalBytes)
 	}
 	return nil
 }
