@@ -14,18 +14,13 @@ import (
 	"github.com/nlpodyssey/safetensors"
 )
 
-func mainImpl() error {
-	hf_token := flag.String("hf-token", "", "HuggingFace token")
-	hf_repo := flag.String("hf-repo", "", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
-	flag.Parse()
-
-	ctx := context.Background()
-	hf, err := huggingface.New(*hf_token, "")
+func run(ctx context.Context, hf_token, hf_repo string) error {
+	hf, err := huggingface.New(hf_token, "")
 	if err != nil {
 		return err
 	}
-	if *hf_repo != "" {
-		p, err := hf.EnsureFile(ctx, huggingface.PackedFileRef("hf:"+*hf_repo+"/HEAD/model.safetensors"), 0o666)
+	if hf_repo != "" {
+		p, err := hf.EnsureFile(ctx, huggingface.PackedFileRef("hf:"+hf_repo+"/HEAD/model.safetensors"), 0o666)
 		if err != nil {
 			return err
 		}
@@ -41,6 +36,15 @@ func mainImpl() error {
 		fmt.Printf("names = %+v\n", s.Names())
 	}
 	return nil
+}
+
+func mainImpl() error {
+	hf_token := flag.String("hf-token", "", "HuggingFace token")
+	hf_repo := flag.String("hf-repo", "", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
+	flag.Parse()
+
+	ctx := context.Background()
+	return run(ctx, *hf_token, *hf_repo)
 }
 
 func main() {
