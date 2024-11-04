@@ -39,8 +39,8 @@ func calcHistogram(t safetensors.TensorView) ([]int, []int, []int) {
 
 func unpackBFloat16(data []byte) (int, int, int) {
 	// Probably a bit faster than proper unpacking via encoding/binary.
-	b1 := data[0]
-	b2 := data[1]
+	b1 := data[1]
+	b2 := data[0]
 	sign := (b1 & 0x80) >> 7
 	exponent := ((b1 & 0x7F) << 1) | ((b2 & 0x80) >> 7)
 	mantissa := b2 & 0x7F
