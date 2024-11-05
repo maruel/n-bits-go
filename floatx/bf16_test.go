@@ -5,8 +5,8 @@
 package floatx
 
 import (
+	"fmt"
 	"math"
-	"strconv"
 	"testing"
 )
 
@@ -20,17 +20,25 @@ func Test_BF16_Components(t *testing.T) {
 	}{
 		{0x3F80, 1.0, 0, 127, 0},
 		{0xBF80, -1.0, 1, 127, 0},
-		{0x4000, 2.0, 0, 128, 0},
 		{0x3F00, 0.5, 0, 126, 0},
 		{0xBF00, -0.5, 1, 126, 0},
-		{0x0000, 0.0, 0, 0, 0},
-		{0xC2F7, -123.5, 1, 133, 119},
+		{0x4000, 2.0, 0, 128, 0},
+		{0xC000, -2.0, 1, 128, 0},
+		// https://en.wikipedia.org/wiki/Bfloat16_floating-point_format#Examples
+		{0x0000, 0., 0, 0, 0},
+		{0x8000, -0., 1, 0, 0},
+		{0x7F7F, 3.3895314e+38, 0, 254, 127},
+		{0x0080, 1.175494351e-38, 0, 1, 0},
+		{0x4049, 3.140625, 0, 128, 73},    // pi
+		{0x3EAB, 0.333984375, 0, 125, 43}, // 1/3
 		{0x7F80, float32(math.Inf(0)), 0, 255, 0},
 		{0xFF80, float32(math.Inf(-1)), 1, 255, 0},
 		{0x7FC0, float32(math.NaN()), 0, 255, 64},
+		{0xFFC1, float32(math.NaN()), 1, 255, 65}, // qNaN
+		{0xFF81, float32(math.NaN()), 1, 255, 1},  // sNaN
 	}
 	for i, line := range data {
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
+		t.Run(fmt.Sprintf("#%d: %g", i, line.f), func(t *testing.T) {
 			bf := BF16(line.v)
 			sign, exponent, mantissa := bf.Components()
 			if sign != line.sign || exponent != line.exponent || mantissa != line.mantissa {

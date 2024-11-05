@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-func TestMainImpl(t *testing.T) {
-	if err := mainImpl([]string{"--help"}); err != context.Canceled {
+func TestAnalyze(t *testing.T) {
+	if err := analyze(context.Background(), "", "Qwen/Qwen2.5-0.5B"); err != nil {
 		t.Fatal(err)
 	}
 }
