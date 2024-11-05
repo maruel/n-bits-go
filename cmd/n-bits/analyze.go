@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/maruel/n-bits-go/floatx"
+	"github.com/maruel/floatx"
 	"github.com/maruel/sillybot/huggingface"
 	"github.com/nlpodyssey/safetensors"
 )
