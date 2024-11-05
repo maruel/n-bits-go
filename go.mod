@@ -4,11 +4,11 @@ go 1.23.1
 
 require (
 	github.com/lmittmann/tint v1.0.5
-	github.com/maruel/floatx v0.0.0-20241105164754-cba2996731b1
+	github.com/maruel/floatx v1.0.0
+	github.com/maruel/safetensors v0.0.0-20241105184210-94339e5c1e92
 	github.com/maruel/sillybot v0.0.0-20240930182418-fa372ed0296c
 	github.com/mattn/go-colorable v0.1.13
 	github.com/mattn/go-isatty v0.0.20
-	github.com/nlpodyssey/safetensors v0.0.0-20230602165149-2a74a2d18984
 )
 
 require (
@@ -18,6 +18,3 @@ require (
 	golang.org/x/sys v0.26.0 // indirect
 	golang.org/x/term v0.25.0 // indirect
 )
-
-// Necessary for determinism.
-//replace github.com/nlpodyssey/safetensors => ../safetensors

@@ -13,8 +13,8 @@ import (
 	"strconv"
 
 	"github.com/maruel/floatx"
+	"github.com/maruel/safetensors"
 	"github.com/maruel/sillybot/huggingface"
-	"github.com/nlpodyssey/safetensors"
 )
 
 // effective returns the number of non-zero items in a slice.
