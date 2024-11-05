@@ -19,4 +19,4 @@ require (
 )
 
 // Necessary for determinism.
-//replace github.com/nlpodyssey/safetensors => ../safetensors
+replace github.com/nlpodyssey/safetensors => ../safetensors
