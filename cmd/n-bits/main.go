@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -92,7 +93,11 @@ func mainImpl(args []string) error {
 		if *hfRepo == "" {
 			return errors.New("-hf-repo is required")
 		}
-		return analyze(ctx, *hfToken, *hfRepo, *out)
+		parts := strings.Split(*hfRepo, "/")
+		if len(parts) != 2 {
+			return errors.New("-hf-repo is invalid")
+		}
+		return analyze(ctx, *hfToken, parts[0], parts[1], *out)
 	default:
 		fs.Usage()
 		return context.Canceled
