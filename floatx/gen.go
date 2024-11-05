@@ -23,12 +23,12 @@ package floatx_test
 import "math"
 
 // See floatx_test.go
-var {{.Name}} = []testData16{
+var {{.Name}} = []testData{
 {{range .Data}}{ {{.V}}, {{.F}}, {{.Sign}}, {{.Exponent}}, {{.Mantissa}}, },
 {{end}} }
 `
 
-type testData16 struct {
+type testData struct {
 	V        string
 	F        string
 	Sign     uint8
@@ -36,16 +36,16 @@ type testData16 struct {
 	Mantissa uint16
 }
 
-func genBF16() []testData16 {
+func genBF16() []testData {
 	const (
 		signOffset     = 15
 		exponentOffset = 7
 		exponentMask   = (1 << (signOffset - exponentOffset)) - 1
 		mantissaMask   = (1 << exponentOffset) - 1
 	)
-	var out [1 << 16]testData16
+	var out [1 << 16]testData
 	for i := range out {
-		x := testData16{
+		x := testData{
 			V:        fmt.Sprintf("0x%04x", i),
 			Sign:     uint8(i >> signOffset),
 			Exponent: uint8((i >> exponentOffset) & exponentMask),
@@ -65,16 +65,16 @@ func genBF16() []testData16 {
 	return out[:]
 }
 
-func genF16() []testData16 {
+func genF16() []testData {
 	const (
 		signOffset     = 15
 		exponentOffset = 10
 		exponentMask   = (1 << (signOffset - exponentOffset)) - 1
 		mantissaMask   = (1 << exponentOffset) - 1
 	)
-	var out [1 << 16]testData16
+	var out [1 << 16]testData
 	for i := range out {
-		x := testData16{
+		x := testData{
 			V:        fmt.Sprintf("0x%04x", i),
 			Sign:     uint8(i >> signOffset),
 			Exponent: uint8((i >> exponentOffset) & exponentMask),
@@ -93,7 +93,63 @@ func genF16() []testData16 {
 	return out[:]
 }
 
-func generate(name, filename string, td []testData16) {
+func genF8E4M3() []testData {
+	const (
+		signOffset     = 7
+		exponentOffset = 3
+		exponentMask   = (1 << (signOffset - exponentOffset)) - 1
+		mantissaMask   = (1 << exponentOffset) - 1
+	)
+	var out [1 << 8]testData
+	for i := range out {
+		x := testData{
+			V:        fmt.Sprintf("0x%02x", i),
+			Sign:     uint8(i >> signOffset),
+			Exponent: uint8((i >> exponentOffset) & exponentMask),
+			Mantissa: uint16(i & mantissaMask),
+		}
+		f := floatx.F8E4M3(i).Float32()
+		if sign := int(x.Sign) * -1; math.IsInf(float64(f), sign) {
+			x.F = fmt.Sprintf("float32(math.Inf(%d))", sign)
+		} else if math.IsNaN(float64(f)) {
+			x.F = "float32(math.NaN())"
+		} else {
+			x.F = fmt.Sprintf("%g", f)
+		}
+		out[i] = x
+	}
+	return out[:]
+}
+
+func genF8E5M2() []testData {
+	const (
+		signOffset     = 7
+		exponentOffset = 2
+		exponentMask   = (1 << (signOffset - exponentOffset)) - 1
+		mantissaMask   = (1 << exponentOffset) - 1
+	)
+	var out [1 << 8]testData
+	for i := range out {
+		x := testData{
+			V:        fmt.Sprintf("0x%02x", i),
+			Sign:     uint8(i >> signOffset),
+			Exponent: uint8((i >> exponentOffset) & exponentMask),
+			Mantissa: uint16(i & mantissaMask),
+		}
+		f := floatx.F8E5M2(i).Float32()
+		if sign := int(x.Sign) * -1; math.IsInf(float64(f), sign) {
+			x.F = fmt.Sprintf("float32(math.Inf(%d))", sign)
+		} else if math.IsNaN(float64(f)) {
+			x.F = "float32(math.NaN())"
+		} else {
+			x.F = fmt.Sprintf("%g", f)
+		}
+		out[i] = x
+	}
+	return out[:]
+}
+
+func generate(name, filename string, td []testData) {
 	data := map[string]any{
 		"Name": name,
 		"Data": td,
@@ -115,4 +171,6 @@ func generate(name, filename string, td []testData16) {
 func main() {
 	generate("bf16TestData", "bf16_data_test.go", genBF16())
 	generate("f16TestData", "f16_data_test.go", genF16())
+	generate("f8E4M3TestData", "f8e4m3_data_test.go", genF8E4M3())
+	generate("f8E5M2TestData", "f8e5m2_data_test.go", genF8E5M2())
 }

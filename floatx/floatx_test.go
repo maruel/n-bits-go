@@ -12,7 +12,7 @@ import (
 	"github.com/maruel/n-bits-go/floatx"
 )
 
-type testData16 struct {
+type testData struct {
 	V        uint16
 	F        float32
 	Sign     uint8
@@ -119,6 +119,98 @@ func Test_F16_SpotCheck(t *testing.T) {
 	for i, line := range data {
 		t.Run(fmt.Sprintf("#%d: %g", i, line.want), func(t *testing.T) {
 			if got := float64(f16TestData[line.index].F); got != line.want {
+				t.Errorf("want=%g got=%g", line.want, got)
+			}
+		})
+	}
+}
+
+func Test_F8E4M3_All(t *testing.T) {
+	for i, line := range f8E4M3TestData {
+		t.Run(fmt.Sprintf("#%d: %g", i, line.F), func(t *testing.T) {
+			f := floatx.F8E4M3(line.V)
+			sign, exponent, mantissa := f.Components()
+			if sign != line.Sign {
+				t.Errorf("sign: want=%d  got=%d", line.Sign, sign)
+			}
+			if exponent != line.Exponent {
+				t.Errorf("exponent: want=%d  got=%d", line.Exponent, exponent)
+			}
+			if uint16(mantissa) != line.Mantissa {
+				t.Errorf("mantissa: want=%d  got=%d", line.Mantissa, mantissa)
+			}
+			if got := f.Float32(); got != line.F {
+				if !math.IsNaN(float64(got)) && !math.IsNaN(float64(line.F)) {
+					t.Errorf("%g != %g", got, line.F)
+				}
+			}
+		})
+	}
+}
+
+func Test_F8E4M3_SpotCheck(t *testing.T) {
+	// Spot check a few values to not take any chance from:
+	// https://en.wikipedia.org/wiki/Minifloat
+	data := []struct {
+		index int
+		want  float64
+	}{
+		{0x00, 0.},
+		{0x80, -0.},
+		{0x38, 1.},
+		{0xC0, -2.},
+		{0x78, math.Inf(0)},
+		{0xF8, math.Inf(-1)},
+	}
+	for i, line := range data {
+		t.Run(fmt.Sprintf("#%d: %g", i, line.want), func(t *testing.T) {
+			if got := float64(f8E4M3TestData[line.index].F); got != line.want {
+				t.Errorf("want=%g got=%g", line.want, got)
+			}
+		})
+	}
+}
+
+func Test_F8E5M2_All(t *testing.T) {
+	for i, line := range f8E5M2TestData {
+		t.Run(fmt.Sprintf("#%d: %g", i, line.F), func(t *testing.T) {
+			f := floatx.F8E5M2(line.V)
+			sign, exponent, mantissa := f.Components()
+			if sign != line.Sign {
+				t.Errorf("sign: want=%d  got=%d", line.Sign, sign)
+			}
+			if exponent != line.Exponent {
+				t.Errorf("exponent: want=%d  got=%d", line.Exponent, exponent)
+			}
+			if uint16(mantissa) != line.Mantissa {
+				t.Errorf("mantissa: want=%d  got=%d", line.Mantissa, mantissa)
+			}
+			if got := f.Float32(); got != line.F {
+				if !math.IsNaN(float64(got)) && !math.IsNaN(float64(line.F)) {
+					t.Errorf("%g != %g", got, line.F)
+				}
+			}
+		})
+	}
+}
+
+func Test_F8E5M2_SpotCheck(t *testing.T) {
+	// Spot check a few values to not take any chance from:
+	// https://en.wikipedia.org/wiki/Minifloat
+	data := []struct {
+		index int
+		want  float64
+	}{
+		{0x00, 0.},
+		{0x80, -0.},
+		{0x3C, 1.},
+		{0xC0, -2.},
+		{0x7C, math.Inf(0)},
+		{0xFC, math.Inf(-1)},
+	}
+	for i, line := range data {
+		t.Run(fmt.Sprintf("#%d: %g", i, line.want), func(t *testing.T) {
+			if got := float64(f8E5M2TestData[line.index].F); got != line.want {
 				t.Errorf("want=%g got=%g", line.want, got)
 			}
 		})

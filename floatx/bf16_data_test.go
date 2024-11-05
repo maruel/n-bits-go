@@ -5,7 +5,7 @@ package floatx_test
 import "math"
 
 // See floatx_test.go
-var bf16TestData = []testData16{
+var bf16TestData = []testData{
 	{0x0000, 0, 0, 0, 0},
 	{0x0001, -1.0633824e+37, 0, 0, 1},
 	{0x0002, -2.1267648e+37, 0, 0, 2},
