@@ -10,7 +10,7 @@ import (
 )
 
 func TestAnalyze(t *testing.T) {
-	if err := analyze(context.Background(), "", "Qwen/Qwen2.5-0.5B"); err != nil {
+	if err := analyze(context.Background(), "", "Qwen/Qwen2.5-0.5B", ""); err != nil {
 		t.Fatal(err)
 	}
 }

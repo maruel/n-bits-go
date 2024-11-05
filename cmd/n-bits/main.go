@@ -79,6 +79,7 @@ func mainImpl(args []string) error {
 	case "analyze":
 		hfToken := fs.String("hf-token", "", "HuggingFace token")
 		hfRepo := fs.String("hf-repo", "", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
+		out := fs.String("json", "", "Save stats as a JSON file")
 		if fs.Parse(args[1:]) != nil {
 			return context.Canceled
 		}
@@ -91,12 +92,11 @@ func mainImpl(args []string) error {
 		if *hfRepo == "" {
 			return errors.New("-hf-repo is required")
 		}
-		return analyze(ctx, *hfToken, *hfRepo)
+		return analyze(ctx, *hfToken, *hfRepo, *out)
 	default:
 		fs.Usage()
 		return context.Canceled
 	}
-	return nil
 }
 
 func main() {
