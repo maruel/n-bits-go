@@ -18,13 +18,16 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/lmittmann/tint"
+	"github.com/maruel/n-bits-go/floatx"
 	"github.com/maruel/sillybot/huggingface"
 	"github.com/mattn/go-colorable"
 	"github.com/mattn/go-isatty"
 	"github.com/nlpodyssey/safetensors"
 )
 
+// effective returns the number of non-zero items in a slice.
 func effective(l []int) int {
 	o := 0
 	for _, v := range l {
@@ -35,13 +38,15 @@ func effective(l []int) int {
 	return o
 }
 
+// calcBF16Histogram calculates the actual use of sign, exponent and mantissa bits.
 func calcBF16Histogram(t safetensors.TensorView) ([]int, []int, []int) {
 	data := t.Data()
 	signs := [1 << 1]int{}
 	exponents := [1 << 8]int{}
 	mantissas := [1 << 7]int{}
 	for i := range t.DataLen() / 2 {
-		sign, exponent, mantissa := unpackBFloat16(data[2*i:])
+		bf := floatx.DecodeBF16(data[2*i:])
+		sign, exponent, mantissa := bf.Components()
 		signs[sign]++
 		exponents[exponent]++
 		mantissas[mantissa]++
@@ -49,14 +54,25 @@ func calcBF16Histogram(t safetensors.TensorView) ([]int, []int, []int) {
 	return signs[:], exponents[:], mantissas[:]
 }
 
-func unpackBFloat16(data []byte) (int, int, int) {
-	// Probably a bit faster than proper unpacking via encoding/binary.
-	b0 := data[0]
-	b1 := data[1]
-	sign := (b1 & 0x80) >> 7
-	exponent := ((b1 & 0x7F) << 1) | ((b0 & 0x80) >> 7)
-	mantissa := b0 & 0x7F
-	return int(sign), int(exponent), int(mantissa)
+// calcBF16Stats calculates the average, min and max
+func calcBF16Stats(t safetensors.TensorView) (float32, float32, float32) {
+	numEl := t.DataLen() / 2
+	min := float32(math.MaxFloat32)
+	max := float32(-math.MaxFloat32)
+	total := float32(0.)
+	data := t.Data()
+	for i := range numEl {
+		bf := floatx.DecodeBF16(data[2*i:])
+		v := bf.Float32()
+		total += v
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	return total / float32(numEl), min, max
 }
 
 func run(ctx context.Context, hfToken, hfRepo string) error {
@@ -103,6 +119,7 @@ func run(ctx context.Context, hfToken, hfRepo string) error {
 			}
 			numEl := int(t.DataLen() / 2)
 			signs, exponents, mantissas := calcBF16Histogram(t)
+			avg, min, max := calcBF16Stats(t)
 			e_signs := effective(signs)
 			e_exponents := effective(exponents)
 			e_mantissas := effective(mantissas)
@@ -110,13 +127,23 @@ func run(ctx context.Context, hfToken, hfRepo string) error {
 			b_exponents := math.Log2(float64(e_exponents))
 			b_mantissas := math.Log2(float64(e_mantissas))
 			wasted := 1 - int(math.Ceil(b_signs)) + 8 - int(math.Ceil(b_exponents)) + 7 - int(math.Ceil(b_mantissas))
-			fmt.Printf("%-*s (%*d): sign=%d/%d(%5.1f%%) %3.1fbits  exponent=%3d/%d(%5.1f%%) %3.1fbits  mantissa=%3d/%d(%5.1f%%) %3.1fbits  wasted=%dbits\n",
+			fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%3.1f/%dbits  wasted=%d/16bits %.1f%%  %6s\n",
 				maxNameLen, name, maxSizeLen, numEl,
-				e_signs, 1<<1, float64(e_signs)/float64(1<<1)*100., b_signs,
-				e_exponents, 1<<8, float64(e_exponents)/float64(1<<8)*100., b_exponents,
-				e_mantissas, 1<<7, float64(e_mantissas)/float64(1<<7)*100., b_mantissas,
-				wasted,
+				avg, min, max,
+				b_signs,
+				b_exponents, 8,
+				b_mantissas, 7,
+				wasted, 100.*float64(wasted)/16., humanize.Bytes(uint64(wasted*numEl/8)),
 			)
+			/*
+				fmt.Printf("%-*s: %*dw  sign=%d/%d %1.0fbits %3.0f%%  exponent=%3d/%d %3.1fbits %5.1f%%  mantissa=%3d/%d %3.1fbits %5.1f%%  wasted=%d/16bits %8dbytes %.1f%%\n",
+					maxNameLen, name, maxSizeLen, numEl,
+					e_signs, 1<<1, b_signs, float64(e_signs-1)/float64(1<<1-1)*100.,
+					e_exponents, 1<<8, b_exponents, float64(e_exponents-1)/float64(1<<8-1)*100.,
+					e_mantissas, 1<<7, b_mantissas, float64(e_mantissas-1)/float64(1<<7-1)*100.,
+					wasted, wasted*numEl/8, 100.*float64(wasted)/16.,
+				)
+			*/
 			bytesWasted += wasted * numEl / 8
 			totalBytes += numEl * 2
 		}

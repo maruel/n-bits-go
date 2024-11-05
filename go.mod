@@ -3,6 +3,7 @@ module github.com/maruel/n-bits-go
 go 1.23.1
 
 require (
+	github.com/dustin/go-humanize v1.0.1
 	github.com/lmittmann/tint v1.0.5
 	github.com/maruel/sillybot v0.0.0-20240930182418-fa372ed0296c
 	github.com/mattn/go-colorable v0.1.13
