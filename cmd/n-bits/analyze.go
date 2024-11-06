@@ -10,11 +10,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 
 	"github.com/maruel/huggingface"
 	"github.com/maruel/n-bits-go/n_bits"
 	"github.com/maruel/safetensors"
+	"golang.org/x/sync/errgroup"
 )
 
 func humanBytes(i int64) string {
@@ -44,6 +46,9 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 		var totalBytes, bytesWasted int64
 		all := n_bits.AnalyzedModel{}
 		for _, f := range files {
+			if err = ctx.Err(); err != nil {
+				return err
+			}
 			fmt.Printf("Processing %s:\n", filepath.Base(f))
 			b, err := os.ReadFile(f)
 			if err != nil {
@@ -53,10 +58,16 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 			if err != nil {
 				return err
 			}
+			if err = ctx.Err(); err != nil {
+				return err
+			}
 			tensors := s.Tensors()
 			maxNameLen := 0
 			maxSizeLen := 0
 			analyzed := make([]n_bits.AnalyzedTensor, len(tensors))
+			// Analyze tensors concurrently.
+			eg := errgroup.Group{}
+			limit := make(chan struct{}, runtime.NumCPU())
 			for i, tensor := range tensors {
 				if l := len(tensor.Name); l > maxNameLen {
 					maxNameLen = l
@@ -64,9 +75,24 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 				if l := len(strconv.Itoa(int(tensor.TensorView.DataLen() / 2))); l > maxSizeLen {
 					maxSizeLen = l
 				}
-				if analyzed[i], err = n_bits.AnalyzeTensor(tensor.Name, tensor.TensorView); err != nil {
-					return err
-				}
+				eg.Go(func() error {
+					limit <- struct{}{}
+					defer func() {
+						<-limit
+					}()
+					if err = ctx.Err(); err != nil {
+						return err
+					}
+					var err2 error
+					analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor.TensorView)
+					return err2
+				})
+			}
+			if err = eg.Wait(); err != nil {
+				return err
+			}
+			if err = ctx.Err(); err != nil {
+				return err
 			}
 			for _, a := range analyzed {
 				wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
@@ -83,7 +109,7 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 			}
 			all.Tensors = append(all.Tensors, analyzed...)
 		}
-		fmt.Printf("%d bytes (%.1f%%) wasted on %d bytes total\n", bytesWasted, 100.*float64(bytesWasted)/float64(totalBytes), totalBytes)
+		fmt.Printf("%s (%.1f%%) wasted on %s total\n", humanBytes(bytesWasted), 100.*float64(bytesWasted)/float64(totalBytes), humanBytes(totalBytes))
 		if out != "" {
 			data, err := json.Marshal(all)
 			if err != nil {
@@ -93,7 +119,6 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 				return err
 			}
 		}
-
 	}
 	return nil
 }

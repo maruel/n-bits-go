@@ -5,6 +5,7 @@
 package n_bits
 
 import (
+	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -93,6 +94,14 @@ func calcBF16Histogram(t safetensors.TensorView) ([]int, []int, []int) {
 	return signs[:], exponents[:], mantissas[:]
 }
 
+var bf16Lookup [1 << 16]float32
+
+func init() {
+	for i := range bf16Lookup {
+		bf16Lookup[i] = floatx.BF16(uint16(i)).Float32()
+	}
+}
+
 // calcBF16Stats calculates the average, min and max
 func calcBF16Stats(t safetensors.TensorView) (float32, float32, float32) {
 	numEl := t.DataLen() / 2
@@ -101,8 +110,9 @@ func calcBF16Stats(t safetensors.TensorView) (float32, float32, float32) {
 	total := float32(0.)
 	data := t.Data()
 	for i := range numEl {
-		bf := floatx.DecodeBF16(data[2*i:])
-		v := bf.Float32()
+		// This gives a small performance improvement.
+		//v := floatx.DecodeBF16(data[2*i:]).Float32()
+		v := bf16Lookup[binary.LittleEndian.Uint16(data[2*i:])]
 		total += v
 		if v < min {
 			min = v
