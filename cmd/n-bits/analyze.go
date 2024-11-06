@@ -12,10 +12,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"sync"
 
 	"github.com/maruel/huggingface"
 	"github.com/maruel/n-bits-go/n_bits"
 	"github.com/maruel/safetensors"
+	"github.com/pbnjay/memory"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -32,6 +34,65 @@ func humanBytes(i int64) string {
 	}
 }
 
+func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan struct{}) ([]n_bits.AnalyzedTensor, error) {
+	// TODO: Memory map instead of reading? Need to perf test.
+	/*
+		f, err := os.OpenFile(name, os.O_RDWR, 0o600)
+		defer f.Close()
+		// github.com/edsrzf/mmap-go
+		mmap, err := mmap.Map(f, mmap.RDWR, 0)
+		defer mmap.Unmap()
+	*/
+	b, err := os.ReadFile(name)
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	s, err := safetensors.Deserialize(b)
+	if err != nil {
+		return nil, err
+	}
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	tensors := s.Tensors()
+	analyzed := make([]n_bits.AnalyzedTensor, len(tensors))
+	// Analyze tensors concurrently.
+	eg := errgroup.Group{}
+	for i, tensor := range tensors {
+		eg.Go(func() error {
+			cpuLimit <- struct{}{}
+			defer func() {
+				<-cpuLimit
+			}()
+			if err = ctx.Err(); err != nil {
+				return err
+			}
+			var err2 error
+			analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor.TensorView)
+			return err2
+		})
+	}
+	err = eg.Wait()
+	return analyzed, err
+}
+
+func calcNameLen(tensors []n_bits.AnalyzedTensor) (int, int) {
+	maxNameLen := 0
+	maxSizeLen := 0
+	for _, tensor := range tensors {
+		if l := len(tensor.Name); l > maxNameLen {
+			maxNameLen = l
+		}
+		if l := len(strconv.FormatInt(tensor.NumEl, 10)); l > maxSizeLen {
+			maxSizeLen = l
+		}
+	}
+	return maxNameLen, maxSizeLen
+}
+
 func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 	hf, err := huggingface.New(hfToken)
 	if err != nil {
@@ -43,71 +104,75 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 		if err != nil {
 			return err
 		}
-		var totalBytes, bytesWasted int64
+
+		mu := sync.Mutex{}
 		all := n_bits.AnalyzedModel{}
-		for _, f := range files {
-			if err = ctx.Err(); err != nil {
-				return err
+		var totalBytes, bytesWasted int64
+
+		// Concurrency limit.
+		cpuLimit := make(chan struct{}, runtime.NumCPU())
+		// This is limited by the amount of RAM.
+		// Assume roughly 4GiB per safetensors, round down, then minus one. In
+		// practice safetensors tend to be about 4.5GiB.
+		// TODO: limit by actual safetensors size. This is very approximative and
+		// will lead to crashes.
+		p := memory.TotalMemory()/1024/1024/1024/8 - 1
+		if p <= 0 {
+			p = 1
+		}
+		loadPipe := make(chan string, p)
+		go func() {
+			// TODO: Handle cancelation.
+			for _, f := range files {
+				loadPipe <- f
 			}
-			fmt.Printf("Processing %s:\n", filepath.Base(f))
-			b, err := os.ReadFile(f)
-			if err != nil {
-				return err
-			}
-			s, err := safetensors.Deserialize(b)
-			if err != nil {
-				return err
-			}
-			if err = ctx.Err(); err != nil {
-				return err
-			}
-			tensors := s.Tensors()
-			maxNameLen := 0
-			maxSizeLen := 0
-			analyzed := make([]n_bits.AnalyzedTensor, len(tensors))
-			// Analyze tensors concurrently.
-			eg := errgroup.Group{}
-			limit := make(chan struct{}, runtime.NumCPU())
-			for i, tensor := range tensors {
-				if l := len(tensor.Name); l > maxNameLen {
-					maxNameLen = l
-				}
-				if l := len(strconv.Itoa(int(tensor.TensorView.DataLen() / 2))); l > maxSizeLen {
-					maxSizeLen = l
-				}
-				eg.Go(func() error {
-					limit <- struct{}{}
-					defer func() {
-						<-limit
-					}()
-					if err = ctx.Err(); err != nil {
-						return err
+			close(loadPipe)
+		}()
+
+		eg, ctx := errgroup.WithContext(ctx)
+		for range p {
+			eg.Go(func() error {
+				// TODO: Use a pipeline so they are processed in order.
+				for f := range loadPipe {
+					if err2 := ctx.Err(); err2 != nil {
+						return err2
 					}
-					var err2 error
-					analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor.TensorView)
-					return err2
-				})
-			}
-			if err = eg.Wait(); err != nil {
-				return err
-			}
-			if err = ctx.Err(); err != nil {
-				return err
-			}
-			for _, a := range analyzed {
-				wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
-				fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%3.1f/%dbits  wasted=%d/16bits %.1f%%  %8s\n",
-					maxNameLen, a.Name, maxSizeLen, a.NumEl,
-					a.Avg, a.Min, a.Max,
-					a.Sign.BitsActuallyUsed(),
-					a.Exponent.BitsActuallyUsed(), a.Exponent.Allocation,
-					a.Mantissa.BitsActuallyUsed(), a.Mantissa.Allocation,
-					wasted, 100.*float64(wasted)/16., humanBytes(wasted*a.NumEl/8),
-				)
-				bytesWasted += wasted * a.NumEl / 8
-				totalBytes += a.NumEl * 2
-			}
-			all.Tensors = append(all.Tensors, analyzed...)
+					// TODO: This prints stuff out of order.
+					fmt.Printf("Processing %s:\n", filepath.Base(f))
+					// TODO: os.Stat() the file and "consume" this amount of ram from the throttler.
+					analyzed, err2 := processSafetensorsFile(ctx, f, cpuLimit)
+					if err2 != nil {
+						return err2
+					}
+					if err2 := ctx.Err(); err2 != nil {
+						return err2
+					}
+					var totalBytes2, bytesWasted2 int64
+					maxNameLen, maxSizeLen := calcNameLen(analyzed)
+					for _, a := range analyzed {
+						wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
+						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%3.1f/%dbits  wasted=%d/16bits %.1f%%  %8s\n",
+							maxNameLen, a.Name, maxSizeLen, a.NumEl,
+							a.Avg, a.Min, a.Max,
+							a.Sign.BitsActuallyUsed(),
+							a.Exponent.BitsActuallyUsed(), a.Exponent.Allocation,
+							a.Mantissa.BitsActuallyUsed(), a.Mantissa.Allocation,
+							wasted, 100.*float64(wasted)/16., humanBytes(wasted*a.NumEl/8),
+						)
+						bytesWasted2 += wasted * a.NumEl / 8
+						totalBytes2 += a.NumEl * 2
+					}
+					mu.Lock()
+					all.Tensors = append(all.Tensors, analyzed...)
+					bytesWasted += bytesWasted2
+					totalBytes += totalBytes2
+					mu.Unlock()
+				}
+				return nil
+			})
+		}
+		if err = eg.Wait(); err != nil {
+			return err
 		}
 		fmt.Printf("%s (%.1f%%) wasted on %s total\n", humanBytes(bytesWasted), 100.*float64(bytesWasted)/float64(totalBytes), humanBytes(totalBytes))
 		if out != "" {
