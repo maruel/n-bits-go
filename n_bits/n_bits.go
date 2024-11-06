@@ -7,6 +7,8 @@ package n_bits
 import (
 	"fmt"
 	"math"
+	"reflect"
+	"unsafe"
 
 	"github.com/maruel/floatx"
 	"github.com/maruel/safetensors"
@@ -95,15 +97,19 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 	max := float32(-math.MaxFloat32)
 	total := float32(0.)
 
+	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data()
-	numEl := t.DataLen() / 2
-	for i := range numEl {
-		bf := floatx.DecodeBF16(data[2*i:])
+	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
+	hdr.Len /= 2
+	hdr.Cap /= 2
+	mapped := *(*[]floatx.BF16)(unsafe.Pointer(&hdr))
+	numEl := len(mapped)
+	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
 		signs[sign]++
 		exponents[exponent]++
 		mantissas[mantissa]++
-		// This gives a small performance improvement over bf.Float32().
+		// This gives a small performance improvement (2%) over bf.Float32().
 		v := bf16Lookup[bf]
 		total += v
 		if v < min {
