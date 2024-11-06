@@ -5,7 +5,6 @@
 package n_bits
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 
@@ -78,22 +77,6 @@ func effective(l []int) int {
 	return o
 }
 
-// calcBF16Histogram calculates the actual use of sign, exponent and mantissa bits.
-func calcBF16Histogram(t safetensors.TensorView) ([]int, []int, []int) {
-	data := t.Data()
-	signs := [1 << 1]int{}
-	exponents := [1 << 8]int{}
-	mantissas := [1 << 7]int{}
-	for i := range t.DataLen() / 2 {
-		bf := floatx.DecodeBF16(data[2*i:])
-		sign, exponent, mantissa := bf.Components()
-		signs[sign]++
-		exponents[exponent]++
-		mantissas[mantissa]++
-	}
-	return signs[:], exponents[:], mantissas[:]
-}
-
 var bf16Lookup [1 << 16]float32
 
 func init() {
@@ -102,17 +85,26 @@ func init() {
 	}
 }
 
-// calcBF16Stats calculates the average, min and max
-func calcBF16Stats(t safetensors.TensorView) (float32, float32, float32) {
-	numEl := t.DataLen() / 2
+// calcBF16HistogramAndStats calculates the actual use of sign, exponent and
+// mantissa bits plus floating point stats.
+func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, float32, float32, float32) {
+	signs := [1 << 1]int{}
+	exponents := [1 << 8]int{}
+	mantissas := [1 << 7]int{}
 	min := float32(math.MaxFloat32)
 	max := float32(-math.MaxFloat32)
 	total := float32(0.)
+
 	data := t.Data()
+	numEl := t.DataLen() / 2
 	for i := range numEl {
-		// This gives a small performance improvement.
-		//v := floatx.DecodeBF16(data[2*i:]).Float32()
-		v := bf16Lookup[binary.LittleEndian.Uint16(data[2*i:])]
+		bf := floatx.DecodeBF16(data[2*i:])
+		sign, exponent, mantissa := bf.Components()
+		signs[sign]++
+		exponents[exponent]++
+		mantissas[mantissa]++
+		// This gives a small performance improvement over bf.Float32().
+		v := bf16Lookup[bf]
 		total += v
 		if v < min {
 			min = v
@@ -121,7 +113,7 @@ func calcBF16Stats(t safetensors.TensorView) (float32, float32, float32) {
 			max = v
 		}
 	}
-	return total / float32(numEl), min, max
+	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
 }
 
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
@@ -129,8 +121,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 	if dt := t.DType(); dt != safetensors.BF16 {
 		return AnalyzedTensor{}, fmt.Errorf("%s: TODO implement support for dtype %s", name, dt)
 	}
-	signs, exponents, mantissas := calcBF16Histogram(t)
-	avg, min, max := calcBF16Stats(t)
+	signs, exponents, mantissas, avg, min, max := calcBF16HistogramAndStats(t)
 	analyzed := AnalyzedTensor{
 		Name:     name,
 		DType:    "bfloat16",
