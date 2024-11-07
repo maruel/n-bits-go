@@ -102,12 +102,50 @@ func effective(l []int) int {
 	return o
 }
 
+var f16Lookup [1 << 16]float32
 var bf16Lookup [1 << 16]float32
 
 func init() {
 	for i := range bf16Lookup {
+		f16Lookup[i] = floatx.F16(uint16(i)).Float32()
 		bf16Lookup[i] = floatx.BF16(uint16(i)).Float32()
 	}
+}
+
+// calcF16HistogramAndStats calculates the actual use of sign, exponent and
+// mantissa bits plus floating point stats.
+func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, float32, float32, float32) {
+	signs := [1 << 1]int{}
+	exponents := [1 << 5]int{}
+	mantissas := [1 << 10]int{}
+	min := float32(math.MaxFloat32)
+	max := float32(-math.MaxFloat32)
+	total := float32(0.)
+
+	// Remapping the slice gives a significant performance boost (10%).
+	data := t.Data
+	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
+	b := int(safetensors.F16.Size())
+	hdr.Len /= b
+	hdr.Cap /= b
+	mapped := *(*[]floatx.F16)(unsafe.Pointer(&hdr))
+	numEl := len(mapped)
+	for _, bf := range mapped {
+		sign, exponent, mantissa := bf.Components()
+		signs[sign]++
+		exponents[exponent]++
+		mantissas[mantissa]++
+		// This gives a small performance improvement (2%) over bf.Float32().
+		v := f16Lookup[bf]
+		total += v
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
 }
 
 // calcBF16HistogramAndStats calculates the actual use of sign, exponent and
@@ -192,6 +230,20 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
 func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error) {
 	switch t.DType {
+	case safetensors.F16:
+		signs, exponents, mantissas, avg, min, max := calcF16HistogramAndStats(t)
+		analyzed := AnalyzedTensor{
+			Name:     name,
+			DType:    t.DType,
+			NumEl:    int64(len(t.Data)) / int64(t.DType.Size()),
+			Avg:      avg,
+			Min:      min,
+			Max:      max,
+			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
+			Exponent: BitKind{Allocation: 5, ValuesSeen: exponents},
+			Mantissa: BitKind{Allocation: 10, ValuesSeen: mantissas},
+		}
+		return analyzed, nil
 	case safetensors.BF16:
 		signs, exponents, mantissas, avg, min, max := calcBF16HistogramAndStats(t)
 		analyzed := AnalyzedTensor{

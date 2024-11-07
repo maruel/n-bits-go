@@ -17,8 +17,11 @@ Analyze popular models in increasingly large size:
 ```bash
 n-bits analyze -hf-repo Qwen/Qwen2.5-0.5B
 n-bits analyze -hf-repo meta-llama/Llama-3.2-1B
+n-bits analyze -hf-repo openai/whisper-large-v3-turbo
+n-bits analyze -hf-repo openai/whisper-large-v3
 n-bits analyze -hf-repo black-forest-labs/FLUX.1-dev
 n-bits analyze -hf-repo meta-llama/Llama-3.1-405B-Instruct
 ```
 
-The average is between 12% and 20% wasted.
+The results range from 6.3% (openai/whisper-large-v3-turbo in float16) to (black-forest-labs/FLUX.1-dev in
+float32) 20% wasted.

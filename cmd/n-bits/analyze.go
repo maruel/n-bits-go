@@ -149,14 +149,16 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 					}
 					maxNameLen, maxSizeLen := calcNameLen(analyzed)
 					for _, a := range analyzed {
+						bits := 8 * a.DType.Size()
+						ratio := 100. / float64(bits)
 						wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
-						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%3.1f/%dbits  wasted=%d/16bits %.1f%%  %8s\n",
+						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%3.1f/%dbits  wasted=%d/%dbits %.1f%%  %8s\n",
 							maxNameLen, a.Name, maxSizeLen, a.NumEl,
 							a.Avg, a.Min, a.Max,
 							a.Sign.BitsActuallyUsed(),
 							a.Exponent.BitsActuallyUsed(), a.Exponent.Allocation,
 							a.Mantissa.BitsActuallyUsed(), a.Mantissa.Allocation,
-							wasted, 100.*float64(wasted)/16., humanBytes(wasted*a.NumEl/8),
+							wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
 						)
 					}
 					mu.Lock()
