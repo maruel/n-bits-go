@@ -15,7 +15,7 @@ go install github.com/maruel/n-bits-go/cmd/n-bits@latest
 Analyze popular models in increasingly large size:
 
 ```bash
-# LLMs
+# LLM
 n-bits analyze -hf-repo Qwen/Qwen2.5-0.5B
 n-bits analyze -hf-repo facebook/MobileLLM-1B
 n-bits analyze -hf-repo meta-llama/Llama-3.2-1B
@@ -24,7 +24,8 @@ n-bits analyze -hf-repo google/gemma-2-2b
 n-bits analyze -hf-repo mistralai/Mistral-7B-v0.3 -hf-glob model*.safetensors
 n-bits analyze -hf-repo meta-llama/Llama-3.1-405B-Instruct
 
-# Videos
+# Image
+n-bits analyze -hf-repo Qwen/Qwen2-VL-2B-Instruct
 n-bits analyze -hf-repo stabilityai/stable-diffusion-3.5-large
 n-bits analyze -hf-repo stabilityai/stable-fast-3d
 n-bits analyze -hf-repo meta-llama/Llama-3.2-11B-Vision
