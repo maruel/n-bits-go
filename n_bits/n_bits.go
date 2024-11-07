@@ -32,14 +32,12 @@ type AnalyzedTensor struct {
 	Mantissa BitKind           `json:"man"`
 }
 
-// Bytes returns the number of bytes this tensor occupies.
-func (a *AnalyzedTensor) Bytes() int64 {
-	if a.DType != safetensors.BF16 {
-		return -1
-	}
-	return a.NumEl * 2
+// Len returns the number of bytes this tensor occupies.
+func (a *AnalyzedTensor) Len() int64 {
+	return a.NumEl * int64(a.DType.Size())
 }
 
+/* TODO
 // IsFloat16Compatible returns true if the tensor can be represented as float16.
 func (a *AnalyzedTensor) IsFloat16Compatible() bool {
 	if a.DType != safetensors.BF16 {
@@ -54,6 +52,7 @@ func (a *AnalyzedTensor) IsFloat16Compatible() bool {
 	}
 	return true
 }
+*/
 
 type BitKind struct {
 	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
@@ -124,8 +123,9 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	hdr.Len /= 2
-	hdr.Cap /= 2
+	b := int(safetensors.BF16.Size())
+	hdr.Len /= b
+	hdr.Cap /= b
 	mapped := *(*[]floatx.BF16)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, bf := range mapped {
@@ -146,22 +146,81 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
 }
 
+// calcF32HistogramAndStats calculates the actual use of sign, exponent and
+// mantissa bits plus floating point stats.
+func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, float32, float32, float32) {
+	const (
+		// https://en.wikipedia.org/wiki/Single-precision_floating-point_format
+		f32SignOffset     = 31
+		f32ExponentOffset = 23
+		exponentMask      = (1 << (f32SignOffset - f32ExponentOffset)) - 1
+		mantissaMask      = (1 << f32ExponentOffset) - 1
+	)
+	signs := [1 << 1]int{}
+	exponents := [1 << (f32SignOffset - f32ExponentOffset)]int{}
+	mantissas := [1 << f32ExponentOffset]int{}
+	min := float32(math.MaxFloat32)
+	max := float32(-math.MaxFloat32)
+	total := float32(0.)
+
+	// Remapping the slice gives a significant performance boost (10%).
+	data := t.Data
+	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
+	b := int(safetensors.F32.Size())
+	hdr.Len /= b
+	hdr.Cap /= b
+	mapped := *(*[]float32)(unsafe.Pointer(&hdr))
+	numEl := len(mapped)
+	for _, v := range mapped {
+		sign := b >> f32SignOffset
+		exponent := (b >> f32ExponentOffset) & exponentMask
+		mantissa := b & mantissaMask
+		signs[sign]++
+		exponents[exponent]++
+		mantissas[mantissa]++
+		total += v
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+	}
+	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
+}
+
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
 func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error) {
-	if dt := t.DType; dt != safetensors.BF16 {
-		return AnalyzedTensor{}, fmt.Errorf("%s: TODO implement support for dtype %s", name, dt)
+	switch t.DType {
+	case safetensors.BF16:
+		signs, exponents, mantissas, avg, min, max := calcBF16HistogramAndStats(t)
+		analyzed := AnalyzedTensor{
+			Name:     name,
+			DType:    t.DType,
+			NumEl:    int64(len(t.Data)) / int64(t.DType.Size()),
+			Avg:      avg,
+			Min:      min,
+			Max:      max,
+			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
+			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
+			Mantissa: BitKind{Allocation: 7, ValuesSeen: mantissas},
+		}
+		return analyzed, nil
+	case safetensors.F32:
+		signs, exponents, mantissas, avg, min, max := calcF32HistogramAndStats(t)
+		analyzed := AnalyzedTensor{
+			Name:     name,
+			DType:    t.DType,
+			NumEl:    int64(len(t.Data)) / int64(t.DType.Size()),
+			Avg:      avg,
+			Min:      min,
+			Max:      max,
+			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
+			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
+			Mantissa: BitKind{Allocation: 23, ValuesSeen: mantissas},
+		}
+		return analyzed, nil
+	default:
+		return AnalyzedTensor{}, fmt.Errorf("%s: TODO implement support for dtype %s", name, t.DType)
 	}
-	signs, exponents, mantissas, avg, min, max := calcBF16HistogramAndStats(t)
-	analyzed := AnalyzedTensor{
-		Name:     name,
-		DType:    safetensors.BF16,
-		NumEl:    int64(len(t.Data) / 2),
-		Avg:      avg,
-		Min:      min,
-		Max:      max,
-		Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
-		Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
-		Mantissa: BitKind{Allocation: 7, ValuesSeen: mantissas},
-	}
-	return analyzed, nil
 }

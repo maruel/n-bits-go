@@ -172,7 +172,7 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 		var bytesWasted, totalBytes, totalWeights int64
 		for _, a := range all.Tensors {
 			bytesWasted += a.NumEl * int64(a.Sign.BitsWasted()+a.Exponent.BitsWasted()+a.Mantissa.BitsWasted()) / 8
-			totalBytes += a.Bytes()
+			totalBytes += a.Len()
 			totalWeights += a.NumEl
 		}
 		fmt.Printf("%s (%.1f%%) wasted on %s total storing %d weights\n", humanBytes(bytesWasted), 100.*float64(bytesWasted)/float64(totalBytes), humanBytes(totalBytes), totalWeights)
