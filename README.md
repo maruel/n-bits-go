@@ -21,6 +21,7 @@ n-bits analyze -hf-repo facebook/MobileLLM-1B
 n-bits analyze -hf-repo meta-llama/Llama-3.2-1B
 n-bits analyze -hf-repo HuggingFaceTB/SmolLM2-1.7B
 n-bits analyze -hf-repo google/gemma-2-2b
+n-bits analyze -hf-repo microsoft/Phi-3.5-mini-instruct
 n-bits analyze -hf-repo mistralai/Mistral-7B-v0.3 -hf-glob model*.safetensors
 n-bits analyze -hf-repo meta-llama/Llama-3.1-405B-Instruct
 
