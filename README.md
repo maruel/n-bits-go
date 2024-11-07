@@ -26,6 +26,7 @@ n-bits analyze -hf-repo meta-llama/Llama-3.1-405B-Instruct
 
 # Videos
 n-bits analyze -hf-repo stabilityai/stable-diffusion-3.5-large
+n-bits analyze -hf-repo stabilityai/stable-fast-3d
 n-bits analyze -hf-repo meta-llama/Llama-3.2-11B-Vision
 n-bits analyze -hf-repo meta-llama/Llama-Guard-3-11B-Vision
 n-bits analyze -hf-repo black-forest-labs/FLUX.1-dev -hf-glob flux1-dev.safetensors

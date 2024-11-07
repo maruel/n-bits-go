@@ -29,7 +29,7 @@ type AnalyzedTensor struct {
 	Max      float32           `json:"max"`
 	Sign     BitKind           `json:"s"`
 	Exponent BitKind           `json:"exp"`
-	Mantissa BitKind           `json:"man"`
+	Mantissa BitKindBool       `json:"man"`
 }
 
 // Len returns the number of bytes this tensor occupies.
@@ -91,11 +91,61 @@ func (b *BitKind) BitsWasted() int {
 	return b.wasted
 }
 
+type BitKindBool struct {
+	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
+	Allocation int `json:"alloc"`
+	// ValuesSeen is all the different values seen in the tensor. Is at least 1 and at most 1<<Allocation.
+	ValuesSeen []bool `json:"seen"`
+
+	initialized  bool
+	effective    int
+	actuallyUsed float32
+	wasted       int
+}
+
+func (b *BitKindBool) cache() {
+	if !b.initialized {
+		b.effective = effectiveBits(b.ValuesSeen)
+		a := math.Log2(float64(b.effective))
+		b.actuallyUsed = float32(a)
+		b.wasted = b.Allocation - int(math.Ceil(a))
+		b.initialized = true
+	}
+}
+
+func (b *BitKindBool) NumberDifferentValuesSeen() int {
+	b.cache()
+	return b.effective
+}
+
+func (b *BitKindBool) BitsActuallyUsed() float32 {
+	b.cache()
+	return b.actuallyUsed
+}
+
+func (b *BitKindBool) BitsWasted() int {
+	b.cache()
+	return b.wasted
+}
+
+//
+
 // effective returns the number of non-zero items in a slice.
 func effective(l []int) int {
 	o := 0
 	for _, v := range l {
 		if v != 0 {
+			o++
+		}
+	}
+	return o
+}
+
+// effectiveBits returns the number of non-zero items in a slice.
+func effectiveBits(l []bool) int {
+	o := 0
+	for _, v := range l {
+		if v {
 			o++
 		}
 	}
@@ -114,10 +164,10 @@ func init() {
 
 // calcF16HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, float32, float32, float32) {
+func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, float32, float32, float32) {
 	signs := [1 << 1]int{}
 	exponents := [1 << 5]int{}
-	mantissas := [1 << 10]int{}
+	mantissas := [1 << 10]bool{}
 	min := float32(math.MaxFloat32)
 	max := float32(-math.MaxFloat32)
 	total := float32(0.)
@@ -134,7 +184,7 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 		sign, exponent, mantissa := bf.Components()
 		signs[sign]++
 		exponents[exponent]++
-		mantissas[mantissa]++
+		mantissas[mantissa] = true
 		// This gives a small performance improvement (2%) over bf.Float32().
 		v := f16Lookup[bf]
 		total += v
@@ -150,10 +200,10 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 
 // calcBF16HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, float32, float32, float32) {
+func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, float32, float32, float32) {
 	signs := [1 << 1]int{}
 	exponents := [1 << 8]int{}
-	mantissas := [1 << 7]int{}
+	mantissas := [1 << 7]bool{}
 	min := float32(math.MaxFloat32)
 	max := float32(-math.MaxFloat32)
 	total := float32(0.)
@@ -170,7 +220,7 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 		sign, exponent, mantissa := bf.Components()
 		signs[sign]++
 		exponents[exponent]++
-		mantissas[mantissa]++
+		mantissas[mantissa] = true
 		// This gives a small performance improvement (2%) over bf.Float32().
 		v := bf16Lookup[bf]
 		total += v
@@ -186,7 +236,7 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 
 // calcF32HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, float32, float32, float32) {
+func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, float32, float32, float32) {
 	const (
 		// https://en.wikipedia.org/wiki/Single-precision_floating-point_format
 		f32SignOffset     = 31
@@ -196,7 +246,9 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 	)
 	signs := [1 << 1]int{}
 	exponents := [1 << (f32SignOffset - f32ExponentOffset)]int{}
-	mantissas := [1 << f32ExponentOffset]int{}
+	// TODO: It's too much when processing >1000 tensors, like
+	// stabilityai/stable-fast-3d. Use a bool.
+	mantissas := [1 << f32ExponentOffset]bool{}
 	min := float32(math.MaxFloat32)
 	max := float32(-math.MaxFloat32)
 	total := float32(0.)
@@ -216,7 +268,7 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 		mantissa := b & mantissaMask
 		signs[sign]++
 		exponents[exponent]++
-		mantissas[mantissa]++
+		mantissas[mantissa] = true
 		total += v
 		if v < min {
 			min = v
@@ -242,7 +294,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 			Max:      max,
 			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
 			Exponent: BitKind{Allocation: 5, ValuesSeen: exponents},
-			Mantissa: BitKind{Allocation: 10, ValuesSeen: mantissas},
+			Mantissa: BitKindBool{Allocation: 10, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	case safetensors.BF16:
@@ -256,7 +308,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 			Max:      max,
 			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
 			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
-			Mantissa: BitKind{Allocation: 7, ValuesSeen: mantissas},
+			Mantissa: BitKindBool{Allocation: 7, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	case safetensors.F32:
@@ -270,7 +322,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 			Max:      max,
 			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
 			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
-			Mantissa: BitKind{Allocation: 23, ValuesSeen: mantissas},
+			Mantissa: BitKindBool{Allocation: 23, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	default:

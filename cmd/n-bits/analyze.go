@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -58,6 +59,7 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 		return nil, err
 	}
 	tensors := s.NamedTensors()
+	slog.Info("analyze", "file", filepath.Base(name), "num_tensors", len(tensors))
 	analyzed := make([]n_bits.AnalyzedTensor, len(tensors))
 	// Analyze tensors concurrently.
 	eg := errgroup.Group{}
@@ -71,6 +73,7 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 				return err
 			}
 			var err2 error
+			slog.Info("analyze", "file", filepath.Base(name), "name", tensor.Name, "dtype", tensor.TensorView.DType)
 			analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor.TensorView)
 			return err2
 		})
