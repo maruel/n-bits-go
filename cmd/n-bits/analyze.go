@@ -100,14 +100,14 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 	}
 	if repo != "" {
 		ref := huggingface.ModelRef{Author: author, Repo: repo}
-		files, err := hf.EnsureSnapshot(ctx, ref, "main", []string{"model*.safetensors"})
+		// FLUX.1-dev uses "flux1-dev.safetensors".
+		files, err := hf.EnsureSnapshot(ctx, ref, "main", []string{"*.safetensors"})
 		if err != nil {
 			return err
 		}
 
 		mu := sync.Mutex{}
 		all := n_bits.AnalyzedModel{}
-		var totalBytes, bytesWasted int64
 
 		// Concurrency limit.
 		cpuLimit := make(chan struct{}, runtime.NumCPU())
@@ -147,7 +147,6 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 					if err2 := ctx.Err(); err2 != nil {
 						return err2
 					}
-					var totalBytes2, bytesWasted2 int64
 					maxNameLen, maxSizeLen := calcNameLen(analyzed)
 					for _, a := range analyzed {
 						wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
@@ -159,13 +158,9 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 							a.Mantissa.BitsActuallyUsed(), a.Mantissa.Allocation,
 							wasted, 100.*float64(wasted)/16., humanBytes(wasted*a.NumEl/8),
 						)
-						bytesWasted2 += wasted * a.NumEl / 8
-						totalBytes2 += a.NumEl * 2
 					}
 					mu.Lock()
 					all.Tensors = append(all.Tensors, analyzed...)
-					bytesWasted += bytesWasted2
-					totalBytes += totalBytes2
 					mu.Unlock()
 				}
 				return nil
@@ -174,7 +169,13 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 		if err = eg.Wait(); err != nil {
 			return err
 		}
-		fmt.Printf("%s (%.1f%%) wasted on %s total\n", humanBytes(bytesWasted), 100.*float64(bytesWasted)/float64(totalBytes), humanBytes(totalBytes))
+		var bytesWasted, totalBytes, totalWeights int64
+		for _, a := range all.Tensors {
+			bytesWasted += a.NumEl * int64(a.Sign.BitsWasted()+a.Exponent.BitsWasted()+a.Mantissa.BitsWasted()) / 8
+			totalBytes += a.Bytes()
+			totalWeights += a.NumEl
+		}
+		fmt.Printf("%s (%.1f%%) wasted on %s total storing %d weights\n", humanBytes(bytesWasted), 100.*float64(bytesWasted)/float64(totalBytes), humanBytes(totalBytes), totalWeights)
 		if out != "" {
 			data, err := json.Marshal(all)
 			if err != nil {

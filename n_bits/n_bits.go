@@ -19,16 +19,40 @@ type AnalyzedModel struct {
 	Tensors []AnalyzedTensor `json:"tensors"`
 }
 
+// AnalyzedTensor contains the stats coming from an analyzed tensor.
 type AnalyzedTensor struct {
-	Name     string  `json:"name"`
-	DType    string  `json:"dtype"`
-	NumEl    int64   `json:"numel"`
-	Avg      float32 `json:"avg"`
-	Min      float32 `json:"min"`
-	Max      float32 `json:"max"`
-	Sign     BitKind `json:"s"`
-	Exponent BitKind `json:"exp"`
-	Mantissa BitKind `json:"man"`
+	Name     string            `json:"name"`
+	DType    safetensors.DType `json:"dtype"`
+	NumEl    int64             `json:"numel"` // Number of weights.
+	Avg      float32           `json:"avg"`
+	Min      float32           `json:"min"`
+	Max      float32           `json:"max"`
+	Sign     BitKind           `json:"s"`
+	Exponent BitKind           `json:"exp"`
+	Mantissa BitKind           `json:"man"`
+}
+
+// Bytes returns the number of bytes this tensor occupies.
+func (a *AnalyzedTensor) Bytes() int64 {
+	if a.DType != safetensors.BF16 {
+		return -1
+	}
+	return a.NumEl * 2
+}
+
+// IsFloat16Compatible returns true if the tensor can be represented as float16.
+func (a *AnalyzedTensor) IsFloat16Compatible() bool {
+	if a.DType != safetensors.BF16 {
+		panic("implement me")
+	}
+	// Look if there's any exponent value that are outside of the range possible to float16.
+
+	for i := 1; i < 10; i++ {
+		if a.Exponent.ValuesSeen[i] != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 type BitKind struct {
@@ -98,7 +122,7 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 	total := float32(0.)
 
 	// Remapping the slice gives a significant performance boost (10%).
-	data := t.Data()
+	data := t.Data
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
 	hdr.Len /= 2
 	hdr.Cap /= 2
@@ -124,14 +148,14 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
 func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error) {
-	if dt := t.DType(); dt != safetensors.BF16 {
+	if dt := t.DType; dt != safetensors.BF16 {
 		return AnalyzedTensor{}, fmt.Errorf("%s: TODO implement support for dtype %s", name, dt)
 	}
 	signs, exponents, mantissas, avg, min, max := calcBF16HistogramAndStats(t)
 	analyzed := AnalyzedTensor{
 		Name:     name,
-		DType:    "bfloat16",
-		NumEl:    int64(t.DataLen() / 2),
+		DType:    safetensors.BF16,
+		NumEl:    int64(len(t.Data) / 2),
 		Avg:      avg,
 		Min:      min,
 		Max:      max,
