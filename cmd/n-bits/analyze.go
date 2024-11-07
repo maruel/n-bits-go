@@ -57,7 +57,7 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	tensors := s.Tensors()
+	tensors := s.NamedTensors()
 	analyzed := make([]n_bits.AnalyzedTensor, len(tensors))
 	// Analyze tensors concurrently.
 	eg := errgroup.Group{}
