@@ -1,12 +1,12 @@
 module github.com/maruel/n-bits-go
 
-go 1.23.1
+go 1.23.3
 
 require (
 	github.com/lmittmann/tint v1.0.5
 	github.com/maruel/floatx v1.0.0
 	github.com/maruel/huggingface v0.0.0-20241106141052-0e475665db8b
-	github.com/maruel/safetensors v0.0.0-20241107142717-0d0fb3875c52
+	github.com/maruel/safetensors v0.0.0-20241107153155-5889a32a8ad3
 	github.com/mattn/go-colorable v0.1.13
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
