@@ -80,6 +80,7 @@ func mainImpl(args []string) error {
 	case "analyze":
 		hfToken := fs.String("hf-token", "", "HuggingFace token")
 		hfRepo := fs.String("hf-repo", "", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
+		hfGlob := fs.String("hf-glob", "", "Glob to use when loading files (default:*.safetensors)")
 		out := fs.String("json", "", "Save stats as a JSON file")
 		if fs.Parse(args[1:]) != nil {
 			return context.Canceled
@@ -97,7 +98,7 @@ func mainImpl(args []string) error {
 		if len(parts) != 2 {
 			return errors.New("-hf-repo is invalid")
 		}
-		return analyze(ctx, *hfToken, parts[0], parts[1], *out)
+		return analyze(ctx, *hfToken, parts[0], parts[1], *hfGlob, *out)
 	default:
 		fs.Usage()
 		return context.Canceled

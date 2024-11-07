@@ -125,9 +125,9 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	b := int(safetensors.F16.Size())
-	hdr.Len /= b
-	hdr.Cap /= b
+	word := int(safetensors.F16.Size())
+	hdr.Len /= word
+	hdr.Cap /= word
 	mapped := *(*[]floatx.F16)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, bf := range mapped {
@@ -161,9 +161,9 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, f
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	b := int(safetensors.BF16.Size())
-	hdr.Len /= b
-	hdr.Cap /= b
+	word := int(safetensors.BF16.Size())
+	hdr.Len /= word
+	hdr.Cap /= word
 	mapped := *(*[]floatx.BF16)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, bf := range mapped {
@@ -204,12 +204,13 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []int, fl
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	b := int(safetensors.F32.Size())
-	hdr.Len /= b
-	hdr.Cap /= b
+	word := int(safetensors.F32.Size())
+	hdr.Len /= word
+	hdr.Cap /= word
 	mapped := *(*[]float32)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, v := range mapped {
+		b := math.Float32bits(v)
 		sign := b >> f32SignOffset
 		exponent := (b >> f32ExponentOffset) & exponentMask
 		mantissa := b & mantissaMask

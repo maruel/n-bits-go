@@ -93,15 +93,18 @@ func calcNameLen(tensors []n_bits.AnalyzedTensor) (int, int) {
 	return maxNameLen, maxSizeLen
 }
 
-func analyze(ctx context.Context, hfToken, author, repo, out string) error {
+func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) error {
 	hf, err := huggingface.New(hfToken)
 	if err != nil {
 		return err
 	}
 	if repo != "" {
+		if fileglob == "" {
+			fileglob = "*.safetensors"
+		}
 		ref := huggingface.ModelRef{Author: author, Repo: repo}
 		// FLUX.1-dev uses "flux1-dev.safetensors".
-		files, err := hf.EnsureSnapshot(ctx, ref, "main", []string{"*.safetensors"})
+		files, err := hf.EnsureSnapshot(ctx, ref, "main", []string{fileglob})
 		if err != nil {
 			return err
 		}
@@ -152,7 +155,7 @@ func analyze(ctx context.Context, hfToken, author, repo, out string) error {
 						bits := 8 * a.DType.Size()
 						ratio := 100. / float64(bits)
 						wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
-						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%3.1f/%dbits  wasted=%d/%dbits %.1f%%  %8s\n",
+						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%4.1f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
 							maxNameLen, a.Name, maxSizeLen, a.NumEl,
 							a.Avg, a.Min, a.Max,
 							a.Sign.BitsActuallyUsed(),
