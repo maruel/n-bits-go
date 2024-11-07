@@ -5,7 +5,7 @@ go 1.23.3
 require (
 	github.com/lmittmann/tint v1.0.5
 	github.com/maruel/floatx v1.0.0
-	github.com/maruel/huggingface v0.0.0-20241106141052-0e475665db8b
+	github.com/maruel/huggingface v0.0.0-20241107183344-4263b6a72c23
 	github.com/maruel/safetensors v0.0.0-20241107165714-fd8bfecf11ac
 	github.com/mattn/go-colorable v0.1.13
 	github.com/mattn/go-isatty v0.0.20
