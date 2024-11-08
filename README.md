@@ -28,6 +28,7 @@ n-bits analyze -hf-repo meta-llama/Llama-3.1-405B-Instruct
 # Image
 n-bits analyze -hf-repo Qwen/Qwen2-VL-2B-Instruct
 n-bits analyze -hf-repo stabilityai/stable-diffusion-3.5-large
+n-bits analyze -hf-repo stabilityai/stable-diffusion-3.5-large -hf-glob text_encoder_3/*.safetensors
 n-bits analyze -hf-repo stabilityai/stable-fast-3d
 n-bits analyze -hf-repo meta-llama/Llama-3.2-11B-Vision
 n-bits analyze -hf-repo meta-llama/Llama-Guard-3-11B-Vision

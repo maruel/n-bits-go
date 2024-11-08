@@ -10,7 +10,8 @@ import (
 )
 
 func TestAnalyze(t *testing.T) {
-	if err := analyze(context.Background(), "", "Qwen", "Qwen2.5-0.5B", "", ""); err != nil {
+	// Load live a relatively small (151MiB) model.
+	if err := analyze(context.Background(), "", "openai", "whisper-tiny", "", ""); err != nil {
 		t.Fatal(err)
 	}
 }
