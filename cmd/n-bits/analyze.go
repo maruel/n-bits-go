@@ -116,15 +116,25 @@ func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) e
 		all := n_bits.AnalyzedModel{}
 
 		// Concurrency limit.
-		cpuLimit := make(chan struct{}, runtime.NumCPU())
+		cpus := runtime.NumCPU()
+		if cpus < 2 {
+			cpus = 2
+		} else if cpus > 1024 {
+			// Limit for now.
+			cpus = 1024
+		}
+		cpuLimit := make(chan struct{}, cpus)
 		// This is limited by the amount of RAM.
 		// Assume roughly 4GiB per safetensors, round down, then minus one. In
 		// practice safetensors tend to be about 4.5GiB.
 		// TODO: limit by actual safetensors size. This is very approximative and
 		// will lead to crashes.
 		p := memory.TotalMemory()/1024/1024/1024/8 - 1
-		if p <= 0 {
+		if p < 1 {
 			p = 1
+		} else if p > 16 {
+			// limit for now.
+			p = 16
 		}
 		loadPipe := make(chan string, p)
 		go func() {
@@ -135,22 +145,22 @@ func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) e
 			close(loadPipe)
 		}()
 
-		eg, ctx := errgroup.WithContext(ctx)
+		eg, ctx2 := errgroup.WithContext(ctx)
 		for range p {
 			eg.Go(func() error {
 				// TODO: Use a pipeline so they are processed in order.
 				for f := range loadPipe {
-					if err2 := ctx.Err(); err2 != nil {
+					if err2 := ctx2.Err(); err2 != nil {
 						return err2
 					}
 					// TODO: This prints stuff out of order.
 					fmt.Printf("Processing %s:\n", filepath.Base(f))
 					// TODO: os.Stat() the file and "consume" this amount of ram from the throttler.
-					analyzed, err2 := processSafetensorsFile(ctx, f, cpuLimit)
+					analyzed, err2 := processSafetensorsFile(ctx2, f, cpuLimit)
 					if err2 != nil {
 						return err2
 					}
-					if err2 := ctx.Err(); err2 != nil {
+					if err2 := ctx2.Err(); err2 != nil {
 						return err2
 					}
 					maxNameLen, maxSizeLen := calcNameLen(analyzed)

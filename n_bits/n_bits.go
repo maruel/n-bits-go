@@ -174,10 +174,12 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
+	// #nosec G103
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
 	word := int(safetensors.F16.Size())
 	hdr.Len /= word
 	hdr.Cap /= word
+	// #nosec G103
 	mapped := *(*[]floatx.F16)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, bf := range mapped {
@@ -210,10 +212,12 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, 
 
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
+	// #nosec G103
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
 	word := int(safetensors.BF16.Size())
 	hdr.Len /= word
 	hdr.Cap /= word
+	// #nosec G103
 	mapped := *(*[]floatx.BF16)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, bf := range mapped {
@@ -255,10 +259,12 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 
 	// Remapping the slice gives a significant performance boost (10%).
 	data := t.Data
+	// #nosec G103
 	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
 	word := int(safetensors.F32.Size())
 	hdr.Len /= word
 	hdr.Cap /= word
+	// #nosec G103
 	mapped := *(*[]float32)(unsafe.Pointer(&hdr))
 	numEl := len(mapped)
 	for _, v := range mapped {
