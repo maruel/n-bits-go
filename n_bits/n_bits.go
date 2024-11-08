@@ -33,7 +33,7 @@ type AnalyzedTensor struct {
 
 // Len returns the number of bytes this tensor occupies.
 func (a *AnalyzedTensor) Len() int64 {
-	return a.NumEl * int64(a.DType.Size())
+	return a.NumEl * int64(a.DType.WordSize())
 }
 
 /* TODO
@@ -173,7 +173,7 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 
 	// Remapping the slice gives a significant performance boost (10%).
 	// #nosec G103
-	mapped := unsafe.Slice((*floatx.F16)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F16.Size()))
+	mapped := unsafe.Slice((*floatx.F16)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F16.WordSize()))
 	numEl := len(mapped)
 	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
@@ -205,7 +205,7 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, 
 
 	// Remapping the slice gives a significant performance boost (10%).
 	// #nosec G103
-	mapped := unsafe.Slice((*floatx.BF16)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.BF16.Size()))
+	mapped := unsafe.Slice((*floatx.BF16)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.BF16.WordSize()))
 	numEl := len(mapped)
 	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
@@ -246,7 +246,7 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 
 	// Remapping the slice gives a significant performance boost (10%).
 	// #nosec G103
-	mapped := unsafe.Slice((*float32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F32.Size()))
+	mapped := unsafe.Slice((*float32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F32.WordSize()))
 	numEl := len(mapped)
 	for _, v := range mapped {
 		b := math.Float32bits(v)
@@ -275,7 +275,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 		analyzed := AnalyzedTensor{
 			Name:     name,
 			DType:    t.DType,
-			NumEl:    int64(len(t.Data)) / int64(t.DType.Size()),
+			NumEl:    int64(len(t.Data)) / int64(t.DType.WordSize()),
 			Avg:      avg,
 			Min:      min,
 			Max:      max,
@@ -289,7 +289,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 		analyzed := AnalyzedTensor{
 			Name:     name,
 			DType:    t.DType,
-			NumEl:    int64(len(t.Data)) / int64(t.DType.Size()),
+			NumEl:    int64(len(t.Data)) / int64(t.DType.WordSize()),
 			Avg:      avg,
 			Min:      min,
 			Max:      max,
@@ -303,7 +303,7 @@ func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error
 		analyzed := AnalyzedTensor{
 			Name:     name,
 			DType:    t.DType,
-			NumEl:    int64(len(t.Data)) / int64(t.DType.Size()),
+			NumEl:    int64(len(t.Data)) / int64(t.DType.WordSize()),
 			Avg:      avg,
 			Min:      min,
 			Max:      max,

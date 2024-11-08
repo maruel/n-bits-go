@@ -165,7 +165,7 @@ func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) e
 					}
 					maxNameLen, maxSizeLen := calcNameLen(analyzed)
 					for _, a := range analyzed {
-						bits := 8 * a.DType.Size()
+						bits := 8 * a.DType.WordSize()
 						ratio := 100. / float64(bits)
 						wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
 						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%4.1f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
