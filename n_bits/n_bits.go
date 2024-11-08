@@ -7,7 +7,6 @@ package n_bits
 import (
 	"fmt"
 	"math"
-	"reflect"
 	"unsafe"
 
 	"github.com/maruel/floatx"
@@ -173,14 +172,8 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 	total := float32(0.)
 
 	// Remapping the slice gives a significant performance boost (10%).
-	data := t.Data
 	// #nosec G103
-	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	word := int(safetensors.F16.Size())
-	hdr.Len /= word
-	hdr.Cap /= word
-	// #nosec G103
-	mapped := *(*[]floatx.F16)(unsafe.Pointer(&hdr))
+	mapped := unsafe.Slice((*floatx.F16)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F16.Size()))
 	numEl := len(mapped)
 	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
@@ -211,14 +204,8 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, 
 	total := float32(0.)
 
 	// Remapping the slice gives a significant performance boost (10%).
-	data := t.Data
 	// #nosec G103
-	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	word := int(safetensors.BF16.Size())
-	hdr.Len /= word
-	hdr.Cap /= word
-	// #nosec G103
-	mapped := *(*[]floatx.BF16)(unsafe.Pointer(&hdr))
+	mapped := unsafe.Slice((*floatx.BF16)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.BF16.Size()))
 	numEl := len(mapped)
 	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
@@ -258,14 +245,8 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 	total := float32(0.)
 
 	// Remapping the slice gives a significant performance boost (10%).
-	data := t.Data
 	// #nosec G103
-	hdr := *(*reflect.SliceHeader)(unsafe.Pointer(&data))
-	word := int(safetensors.F32.Size())
-	hdr.Len /= word
-	hdr.Cap /= word
-	// #nosec G103
-	mapped := *(*[]float32)(unsafe.Pointer(&hdr))
+	mapped := unsafe.Slice((*float32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F32.Size()))
 	numEl := len(mapped)
 	for _, v := range mapped {
 		b := math.Float32bits(v)
