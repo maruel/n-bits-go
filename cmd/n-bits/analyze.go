@@ -58,12 +58,11 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	tensors := s.NamedTensors()
-	slog.Info("analyze", "file", filepath.Base(name), "num_tensors", len(tensors))
-	analyzed := make([]n_bits.AnalyzedTensor, len(tensors))
+	slog.Info("analyze", "file", filepath.Base(name), "num_tensors", len(s.Tensors))
+	analyzed := make([]n_bits.AnalyzedTensor, len(s.Tensors))
 	// Analyze tensors concurrently.
 	eg := errgroup.Group{}
-	for i, tensor := range tensors {
+	for i, tensor := range s.Tensors {
 		eg.Go(func() error {
 			cpuLimit <- struct{}{}
 			defer func() {
@@ -73,8 +72,8 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 				return err
 			}
 			var err2 error
-			slog.Info("analyze", "file", filepath.Base(name), "name", tensor.Name, "dtype", tensor.TensorView.DType)
-			analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor.TensorView)
+			slog.Info("analyze", "file", filepath.Base(name), "name", tensor.Name, "dtype", tensor.DType)
+			analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor)
 			return err2
 		})
 	}

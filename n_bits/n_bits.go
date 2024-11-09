@@ -163,7 +163,7 @@ func init() {
 
 // calcF16HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, float32, float32, float32) {
+func calcF16HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float32, float32, float32) {
 	signs := [1 << 1]int{}
 	exponents := [1 << 5]int{}
 	mantissas := [1 << 10]bool{}
@@ -195,7 +195,7 @@ func calcF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 
 // calcBF16HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, float32, float32, float32) {
+func calcBF16HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float32, float32, float32) {
 	signs := [1 << 1]int{}
 	exponents := [1 << 8]int{}
 	mantissas := [1 << 7]bool{}
@@ -227,7 +227,7 @@ func calcBF16HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, 
 
 // calcF32HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, float32, float32, float32) {
+func calcF32HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float32, float32, float32) {
 	const (
 		// https://en.wikipedia.org/wiki/Single-precision_floating-point_format
 		f32SignOffset     = 31
@@ -268,7 +268,7 @@ func calcF32HistogramAndStats(t safetensors.TensorView) ([]int, []int, []bool, f
 }
 
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
-func AnalyzeTensor(name string, t safetensors.TensorView) (AnalyzedTensor, error) {
+func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 	switch t.DType {
 	case safetensors.F16:
 		signs, exponents, mantissas, avg, min, max := calcF16HistogramAndStats(t)
