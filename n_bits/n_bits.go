@@ -23,9 +23,11 @@ type AnalyzedTensor struct {
 	Name     string            `json:"name"`
 	DType    safetensors.DType `json:"dtype"`
 	NumEl    int64             `json:"numel"` // Number of weights.
-	Avg      float32           `json:"avg"`
-	Min      float32           `json:"min"`
-	Max      float32           `json:"max"`
+	Avg      float64           `json:"avg"`
+	Min      float64           `json:"min"`
+	Max      float64           `json:"max"`
+	Inf      int               `json:"inf"`
+	NaN      int               `json:"nan"`
 	Sign     BitKind           `json:"s"`
 	Exponent BitKind           `json:"exp"`
 	Mantissa BitKindBool       `json:"man"`
@@ -57,19 +59,19 @@ type BitKind struct {
 	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
 	Allocation int `json:"alloc"`
 	// ValuesSeen is all the different values seen in the tensor. Is at least 1 and at most 1<<Allocation.
-	ValuesSeen []int `json:"seen"`
+	ValuesSeen CountSet `json:"seen"`
 
 	initialized  bool
 	effective    int
-	actuallyUsed float32
+	actuallyUsed float64
 	wasted       int
 }
 
 func (b *BitKind) cache() {
 	if !b.initialized {
-		b.effective = effective(b.ValuesSeen)
+		b.effective = b.ValuesSeen.Effective()
 		a := math.Log2(float64(b.effective))
-		b.actuallyUsed = float32(a)
+		b.actuallyUsed = a
 		b.wasted = b.Allocation - int(math.Ceil(a))
 		b.initialized = true
 	}
@@ -80,7 +82,7 @@ func (b *BitKind) NumberDifferentValuesSeen() int {
 	return b.effective
 }
 
-func (b *BitKind) BitsActuallyUsed() float32 {
+func (b *BitKind) BitsActuallyUsed() float64 {
 	b.cache()
 	return b.actuallyUsed
 }
@@ -94,19 +96,19 @@ type BitKindBool struct {
 	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
 	Allocation int `json:"alloc"`
 	// ValuesSeen is all the different values seen in the tensor. Is at least 1 and at most 1<<Allocation.
-	ValuesSeen []bool `json:"seen"`
+	ValuesSeen BitSet `json:"seen"`
 
 	initialized  bool
 	effective    int
-	actuallyUsed float32
+	actuallyUsed float64
 	wasted       int
 }
 
 func (b *BitKindBool) cache() {
 	if !b.initialized {
-		b.effective = effectiveBits(b.ValuesSeen)
+		b.effective = b.ValuesSeen.Effective()
 		a := math.Log2(float64(b.effective))
-		b.actuallyUsed = float32(a)
+		b.actuallyUsed = a
 		b.wasted = b.Allocation - int(math.Ceil(a))
 		b.initialized = true
 	}
@@ -117,7 +119,7 @@ func (b *BitKindBool) NumberDifferentValuesSeen() int {
 	return b.effective
 }
 
-func (b *BitKindBool) BitsActuallyUsed() float32 {
+func (b *BitKindBool) BitsActuallyUsed() float64 {
 	b.cache()
 	return b.actuallyUsed
 }
@@ -128,28 +130,6 @@ func (b *BitKindBool) BitsWasted() int {
 }
 
 //
-
-// effective returns the number of non-zero items in a slice.
-func effective(l []int) int {
-	o := 0
-	for _, v := range l {
-		if v != 0 {
-			o++
-		}
-	}
-	return o
-}
-
-// effectiveBits returns the number of non-zero items in a slice.
-func effectiveBits(l []bool) int {
-	o := 0
-	for _, v := range l {
-		if v {
-			o++
-		}
-	}
-	return o
-}
 
 var f16Lookup [1 << 16]float32
 var bf16Lookup [1 << 16]float32
@@ -163,13 +143,17 @@ func init() {
 
 // calcF16HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcF16HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float32, float32, float32) {
-	signs := [1 << 1]int{}
-	exponents := [1 << 5]int{}
-	mantissas := [1 << 10]bool{}
-	min := float32(math.MaxFloat32)
-	max := float32(-math.MaxFloat32)
-	total := float32(0.)
+func calcF16HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, BitSet, float64, float64, float64, int, int) {
+	var signs, exponents CountSet
+	signs.Resize(1 << 1)
+	exponents.Resize(1 << (floatx.F16SignOffset - floatx.F16ExponentOffset))
+	var mantissas BitSet
+	mantissas.Resize(1 << floatx.F16ExponentOffset)
+	min := math.MaxFloat32
+	max := -math.MaxFloat32
+	total := 0.
+	inf := 0
+	nan := 0
 
 	// Remapping the slice gives a significant performance boost (10%).
 	// #nosec G103
@@ -177,31 +161,41 @@ func calcF16HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float
 	numEl := len(mapped)
 	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
-		signs[sign]++
-		exponents[exponent]++
-		mantissas[mantissa] = true
-		// This gives a small performance improvement (2%) over bf.Float32().
-		v := f16Lookup[bf]
-		total += v
-		if v < min {
-			min = v
-		}
-		if v > max {
-			max = v
+		signs.Add(int(sign))
+		exponents.Add(int(exponent))
+		mantissas.Set(int(mantissa))
+		// The lookup gives a small performance improvement (2%) over f.Float32().
+		// Consider anything in the 1e37 range infinity.
+		if v := float64(f16Lookup[bf]); math.IsNaN(v) {
+			nan++
+		} else if math.IsInf(v, 0) || v < -1e37 && v > 1e37 {
+			inf++
+		} else {
+			total += v
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
 		}
 	}
-	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
+	return signs, exponents, mantissas, total / float64(numEl), min, max, inf, nan
 }
 
 // calcBF16HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcBF16HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float32, float32, float32) {
-	signs := [1 << 1]int{}
-	exponents := [1 << 8]int{}
-	mantissas := [1 << 7]bool{}
-	min := float32(math.MaxFloat32)
-	max := float32(-math.MaxFloat32)
-	total := float32(0.)
+func calcBF16HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, BitSet, float64, float64, float64, int, int) {
+	var signs, exponents CountSet
+	signs.Resize(1 << 1)
+	exponents.Resize(1 << (floatx.BF16SignOffset - floatx.BF16ExponentOffset))
+	var mantissas BitSet
+	mantissas.Resize(1 << floatx.BF16ExponentOffset)
+	min := math.MaxFloat32
+	max := -math.MaxFloat32
+	total := 0.
+	inf := 0
+	nan := 0
 
 	// Remapping the slice gives a significant performance boost (10%).
 	// #nosec G103
@@ -209,69 +203,76 @@ func calcBF16HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, floa
 	numEl := len(mapped)
 	for _, bf := range mapped {
 		sign, exponent, mantissa := bf.Components()
-		signs[sign]++
-		exponents[exponent]++
-		mantissas[mantissa] = true
-		// This gives a small performance improvement (2%) over bf.Float32().
-		v := bf16Lookup[bf]
-		total += v
-		if v < min {
-			min = v
-		}
-		if v > max {
-			max = v
+		signs.Add(int(sign))
+		exponents.Add(int(exponent))
+		mantissas.Set(int(mantissa))
+		// The lookup gives a small performance improvement (2%) over bf.Float32().
+		// Consider anything in the 1e37 range infinity. This is necessary for Mistral-7B-v0.3.
+		if v := float64(bf16Lookup[bf]); math.IsNaN(v) {
+			nan++
+		} else if math.IsInf(v, 0) || v < -1e37 || v > 1e37 {
+			inf++
+		} else {
+			total += v
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
 		}
 	}
-	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
+	return signs, exponents, mantissas, total / float64(numEl), min, max, inf, nan
 }
 
 // calcF32HistogramAndStats calculates the actual use of sign, exponent and
 // mantissa bits plus floating point stats.
-func calcF32HistogramAndStats(t safetensors.Tensor) ([]int, []int, []bool, float32, float32, float32) {
-	const (
-		// https://en.wikipedia.org/wiki/Single-precision_floating-point_format
-		f32SignOffset     = 31
-		f32ExponentOffset = 23
-		exponentMask      = (1 << (f32SignOffset - f32ExponentOffset)) - 1
-		mantissaMask      = (1 << f32ExponentOffset) - 1
-	)
-	signs := [1 << 1]int{}
-	exponents := [1 << (f32SignOffset - f32ExponentOffset)]int{}
-	// TODO: It's too much when processing >1000 tensors, like
-	// stabilityai/stable-fast-3d. Use a bool.
-	mantissas := [1 << f32ExponentOffset]bool{}
-	min := float32(math.MaxFloat32)
-	max := float32(-math.MaxFloat32)
-	total := float32(0.)
+func calcF32HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, BitSet, float64, float64, float64, int, int) {
+	var signs, exponents CountSet
+	signs.Resize(1 << 1)
+	exponents.Resize(1 << (floatx.F32SignOffset - floatx.F32ExponentOffset))
+	var mantissas BitSet
+	mantissas.Resize(1 << floatx.F32ExponentOffset)
+	min := math.MaxFloat32
+	max := -math.MaxFloat32
+	total := 0.
+	inf := 0
+	nan := 0
 
 	// Remapping the slice gives a significant performance boost (10%).
 	// #nosec G103
 	mapped := unsafe.Slice((*float32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.F32.WordSize()))
 	numEl := len(mapped)
-	for _, v := range mapped {
-		b := math.Float32bits(v)
-		sign := b >> f32SignOffset
-		exponent := (b >> f32ExponentOffset) & exponentMask
-		mantissa := b & mantissaMask
-		signs[sign]++
-		exponents[exponent]++
-		mantissas[mantissa] = true
-		total += v
-		if v < min {
-			min = v
-		}
-		if v > max {
-			max = v
+	for _, f := range mapped {
+		b := math.Float32bits(f)
+		sign := b >> floatx.F32SignOffset
+		exponent := (b >> floatx.F32ExponentOffset) & floatx.F32ExponentMask
+		mantissa := b & floatx.F32MantissaMask
+		signs.Add(int(sign))
+		exponents.Add(int(exponent))
+		mantissas.Set(int(mantissa))
+		// Consider anything in the 1e37 range infinity.
+		if v := float64(f); math.IsNaN(v) {
+			nan++
+		} else if math.IsInf(v, 0) || v < -1e37 || v > 1e37 {
+			inf++
+		} else {
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
 		}
 	}
-	return signs[:], exponents[:], mantissas[:], total / float32(numEl), min, max
+	return signs, exponents, mantissas, total / float64(numEl), min, max, inf, nan
 }
 
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
 func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 	switch t.DType {
 	case safetensors.F16:
-		signs, exponents, mantissas, avg, min, max := calcF16HistogramAndStats(t)
+		signs, exponents, mantissas, avg, min, max, inf, nan := calcF16HistogramAndStats(t)
 		analyzed := AnalyzedTensor{
 			Name:     name,
 			DType:    t.DType,
@@ -279,13 +280,15 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Avg:      avg,
 			Min:      min,
 			Max:      max,
+			Inf:      inf,
+			NaN:      nan,
 			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
 			Exponent: BitKind{Allocation: 5, ValuesSeen: exponents},
 			Mantissa: BitKindBool{Allocation: 10, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	case safetensors.BF16:
-		signs, exponents, mantissas, avg, min, max := calcBF16HistogramAndStats(t)
+		signs, exponents, mantissas, avg, min, max, inf, nan := calcBF16HistogramAndStats(t)
 		analyzed := AnalyzedTensor{
 			Name:     name,
 			DType:    t.DType,
@@ -293,13 +296,15 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Avg:      avg,
 			Min:      min,
 			Max:      max,
+			Inf:      inf,
+			NaN:      nan,
 			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
 			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
 			Mantissa: BitKindBool{Allocation: 7, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	case safetensors.F32:
-		signs, exponents, mantissas, avg, min, max := calcF32HistogramAndStats(t)
+		signs, exponents, mantissas, avg, min, max, inf, nan := calcF32HistogramAndStats(t)
 		analyzed := AnalyzedTensor{
 			Name:     name,
 			DType:    t.DType,
@@ -307,6 +312,8 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Avg:      avg,
 			Min:      min,
 			Max:      max,
+			Inf:      inf,
+			NaN:      nan,
 			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
 			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
 			Mantissa: BitKindBool{Allocation: 23, ValuesSeen: mantissas},
