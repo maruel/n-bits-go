@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/edsrzf/mmap-go"
 	"github.com/maruel/huggingface"
 	"github.com/maruel/n-bits-go/n_bits"
 	"github.com/maruel/safetensors"
@@ -36,22 +37,26 @@ func humanBytes(i int64) string {
 }
 
 func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan struct{}) ([]n_bits.AnalyzedTensor, error) {
-	// TODO: Memory map instead of reading? Need to perf test.
-	/*
-		f, err := os.OpenFile(name, os.O_RDWR, 0o600)
-		defer f.Close()
-		// github.com/edsrzf/mmap-go
-		mmap, err := mmap.Map(f, mmap.RDWR, 0)
-		defer mmap.Unmap()
-	*/
-	b, err := os.ReadFile(name)
+	f, err := os.OpenFile(name, os.O_RDONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
+	b, err := mmap.Map(f, mmap.RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer b.Unmap()
+	/*
+		b, err := os.ReadFile(name)
+		if err != nil {
+			return nil, err
+		}
+	*/
 	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
-	s, err := safetensors.Deserialize(b)
+	s, err := safetensors.Parse(b)
 	if err != nil {
 		return nil, err
 	}
@@ -125,10 +130,10 @@ func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) e
 		cpuLimit := make(chan struct{}, cpus)
 		// This is limited by the amount of RAM.
 		// Assume roughly 4GiB per safetensors, round down, then minus one. In
-		// practice safetensors tend to be about 4.5GiB.
+		// practice safetensors tend to be about 4.5GiB but there are exceptions.
 		// TODO: limit by actual safetensors size. This is very approximative and
 		// will lead to crashes.
-		p := memory.TotalMemory()/1024/1024/1024/8 - 1
+		p := memory.TotalMemory()/1024/1024/1024/5 - 1
 		if p < 1 {
 			p = 1
 		} else if p > 16 {

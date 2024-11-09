@@ -2,6 +2,9 @@
 
 Algorithms to better understand DNN (deep neural networks) weights.
 
+This tool gathers bit usage in a ML model and prints statistics. It is quite performance optimized, processing
+405 billions weights (over 800GiB) in slightly more than 3 minutes.
+
 
 ## Installation
 
@@ -23,6 +26,7 @@ n-bits analyze -hf-repo HuggingFaceTB/SmolLM2-1.7B
 n-bits analyze -hf-repo google/gemma-2-2b
 n-bits analyze -hf-repo microsoft/Phi-3.5-mini-instruct
 n-bits analyze -hf-repo mistralai/Mistral-7B-v0.3 -hf-glob model*.safetensors
+n-bits analyze -hf-repo meta-llama/Llama-3.1-70B-Instruct
 n-bits analyze -hf-repo meta-llama/Llama-3.1-405B-Instruct
 
 # Image
