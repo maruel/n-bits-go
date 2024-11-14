@@ -21,6 +21,53 @@ import (
 	"github.com/mattn/go-isatty"
 )
 
+type hfTokenArg string
+
+func (h *hfTokenArg) Set(s string) error {
+	if !strings.HasPrefix(s, "hf_") {
+		return errors.New("token is invalid")
+	}
+	*h = hfTokenArg(s)
+	return nil
+}
+
+func (h *hfTokenArg) String() string {
+	return string(*h)
+}
+
+type hfRepoArg string
+
+func (h *hfRepoArg) Set(s string) error {
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 || len(parts[0]) == 0 || len(parts[1]) == 0 {
+		return errors.New("repo is invalid")
+	}
+	*h = hfRepoArg(s)
+	return nil
+}
+
+func (h *hfRepoArg) String() string {
+	return string(*h)
+}
+
+func (h *hfRepoArg) Org() string {
+	if len(*h) == 0 {
+		return ""
+	}
+	s := string(*h)
+	i := strings.IndexByte(s, '/')
+	return s[:i]
+}
+
+func (h *hfRepoArg) Repo() string {
+	if len(*h) == 0 {
+		return ""
+	}
+	s := string(*h)
+	i := strings.IndexByte(s, '/')
+	return s[i+1:]
+}
+
 func mainImpl(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	defer stop()
@@ -69,6 +116,12 @@ func mainImpl(args []string) error {
 		<-ctx.Done()
 		slog.Info("main", "message", "quitting")
 	}()
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("main", "panic", r)
+			panic(r)
+		}
+	}()
 
 	fs := flag.NewFlagSet("n-bits", flag.ContinueOnError)
 	verbose := fs.Bool("v", false, "Enable verbose logging")
@@ -78,8 +131,10 @@ func mainImpl(args []string) error {
 	}
 	switch args[0] {
 	case "analyze":
-		hfToken := fs.String("hf-token", "", "HuggingFace token")
-		hfRepo := fs.String("hf-repo", "", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
+		var hfToken hfTokenArg
+		var hfRepo hfRepoArg
+		fs.Var(&hfToken, "hf-token", "HuggingFace token")
+		fs.Var(&hfRepo, "hf-repo", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
 		hfGlob := fs.String("hf-glob", "", "Glob to use when loading files (default:*.safetensors)")
 		out := fs.String("json", "", "Save stats as a JSON file")
 		if fs.Parse(args[1:]) != nil {
@@ -91,14 +146,42 @@ func mainImpl(args []string) error {
 		if *verbose {
 			programLevel.Set(slog.LevelDebug)
 		}
-		if *hfRepo == "" {
+		if hfRepo == "" {
 			return errors.New("-hf-repo is required")
 		}
-		parts := strings.Split(*hfRepo, "/")
-		if len(parts) != 2 {
-			return errors.New("-hf-repo is invalid")
+		return cmdAnalyze(ctx, hfToken.String(), hfRepo.Org(), hfRepo.Repo(), *hfGlob, *out)
+	case "metadata":
+		var hfToken hfTokenArg
+		var hfRepo hfRepoArg
+		fs.Var(&hfToken, "hf-token", "HuggingFace token")
+		fs.Var(&hfRepo, "hf-repo", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
+		hfGlob := fs.String("hf-glob", "", "Glob to use when loading files (default:*.safetensors)")
+		name := fs.String("name", "", "Single file to process")
+		if fs.Parse(args[1:]) != nil {
+			return context.Canceled
 		}
-		return analyze(ctx, *hfToken, parts[0], parts[1], *hfGlob, *out)
+		if len(fs.Args()) != 0 {
+			return errors.New("unexpected argument")
+		}
+		if *verbose {
+			programLevel.Set(slog.LevelDebug)
+		}
+		if *name == "" {
+			if hfRepo == "" {
+				return errors.New("-hf-repo is required")
+			}
+		} else {
+			if hfToken != "" {
+				return errors.New("can't use both -name and -hf-token")
+			}
+			if hfRepo != "" {
+				return errors.New("can't use both -name and -hf-repo")
+			}
+			if *hfGlob != "" {
+				return errors.New("can't use both -name and -hf-glob")
+			}
+		}
+		return cmdMetadata(ctx, *name, hfToken.String(), hfRepo.Org(), hfRepo.Repo(), *hfGlob)
 	default:
 		fs.Usage()
 		return context.Canceled

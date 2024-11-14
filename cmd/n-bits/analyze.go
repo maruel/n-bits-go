@@ -15,7 +15,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/edsrzf/mmap-go"
 	"github.com/maruel/huggingface"
 	"github.com/maruel/n-bits-go/n_bits"
 	"github.com/maruel/safetensors"
@@ -37,30 +36,12 @@ func humanBytes(i int64) string {
 }
 
 func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan struct{}) ([]n_bits.AnalyzedTensor, error) {
-	f, err := os.OpenFile(name, os.O_RDONLY, 0o600)
-	if err != nil {
+	s := safetensors.Mapped{}
+	if err := s.Open(name); err != nil {
 		return nil, err
 	}
-	defer f.Close()
-	b, err := mmap.Map(f, mmap.RDONLY, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer b.Unmap()
-	/*
-		b, err := os.ReadFile(name)
-		if err != nil {
-			return nil, err
-		}
-	*/
-	if err = ctx.Err(); err != nil {
-		return nil, err
-	}
-	s, err := safetensors.Parse(b)
-	if err != nil {
-		return nil, err
-	}
-	if err = ctx.Err(); err != nil {
+	defer s.Close()
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	slog.Info("analyze", "file", filepath.Base(name), "num_tensors", len(s.Tensors))
@@ -73,8 +54,8 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 			defer func() {
 				<-cpuLimit
 			}()
-			if err = ctx.Err(); err != nil {
-				return err
+			if err2 := ctx.Err(); err2 != nil {
+				return err2
 			}
 			var err2 error
 			slog.Info("analyze", "file", filepath.Base(name), "name", tensor.Name, "dtype", tensor.DType)
@@ -82,7 +63,7 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 			return err2
 		})
 	}
-	err = eg.Wait()
+	err := eg.Wait()
 	return analyzed, err
 }
 
@@ -100,7 +81,7 @@ func calcNameLen(tensors []n_bits.AnalyzedTensor) (int, int) {
 	return maxNameLen, maxSizeLen
 }
 
-func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) error {
+func cmdAnalyze(ctx context.Context, hfToken, author, repo, fileglob, out string) error {
 	hf, err := huggingface.New(hfToken)
 	if err != nil {
 		return err
@@ -110,7 +91,6 @@ func analyze(ctx context.Context, hfToken, author, repo, fileglob, out string) e
 			fileglob = "*.safetensors"
 		}
 		ref := huggingface.ModelRef{Author: author, Repo: repo}
-		// FLUX.1-dev uses "flux1-dev.safetensors".
 		files, err := hf.EnsureSnapshot(ctx, ref, "main", []string{fileglob})
 		if err != nil {
 			return err

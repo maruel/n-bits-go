@@ -46,3 +46,12 @@ n-bits analyze -hf-repo openai/whisper-large-v3 -hf-glob model.fp32*.safetensors
 
 The results range from 6.3% (openai/whisper-large-v3-turbo in float16), with SD3.5 being a close second at
 6.4% to (openai/whisper-large-v3 in float32) 50% wasted. The median is around 17%.
+
+
+### Metadata
+
+Dump the metadata for each of the models you downloaded up to now:
+
+```
+find ~/.cache/huggingface/hub/models--*/snapshots -type l -name '*.safetensors' -exec n-bits metadata -name {} \;
+```

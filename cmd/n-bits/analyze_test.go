@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-func TestAnalyze(t *testing.T) {
+func TestCmdAnalyze(t *testing.T) {
 	// Load live a relatively small (151MiB) model.
-	if err := analyze(context.Background(), "", "openai", "whisper-tiny", "", ""); err != nil {
+	if err := cmdAnalyze(context.Background(), "", "openai", "whisper-tiny", "", ""); err != nil {
 		t.Fatal(err)
 	}
 }
