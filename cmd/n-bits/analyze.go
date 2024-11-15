@@ -152,14 +152,25 @@ func cmdAnalyze(ctx context.Context, hfToken, author, repo, fileglob, out string
 						bits := 8 * a.DType.WordSize()
 						ratio := 100. / float64(bits)
 						wasted := int64(a.Sign.BitsWasted() + a.Exponent.BitsWasted() + a.Mantissa.BitsWasted())
-						fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%4.1f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
-							maxNameLen, a.Name, maxSizeLen, a.NumEl,
-							a.Avg, a.Min, a.Max,
-							a.Sign.BitsActuallyUsed(),
-							a.Exponent.BitsActuallyUsed(), a.Exponent.Allocation,
-							a.Mantissa.BitsActuallyUsed(), a.Mantissa.Allocation,
-							wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
-						)
+						if a.Exponent.GetAllocation() != 0 {
+							// Integers.
+							fmt.Printf("%-*s: %*dw  avg=%4.1f [%6.1f, %6.1f]  sign=%1.0fbit  exponent=%3.1f/%dbits  mantissa=%4.1f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
+								maxNameLen, a.Name, maxSizeLen, a.NumEl,
+								a.Avg, a.Min, a.Max,
+								a.Sign.BitsActuallyUsed(),
+								a.Exponent.BitsActuallyUsed(), a.Exponent.GetAllocation(),
+								a.Mantissa.BitsActuallyUsed(), a.Mantissa.GetAllocation(),
+								wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
+							)
+						} else {
+							fmt.Printf("%-*s: %*dw  avg=%11.0f [%11.0f, %10.0f]  sign=%1.0fbit  mantissa=%4.1f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
+								maxNameLen, a.Name, maxSizeLen, a.NumEl,
+								a.Avg, a.Min, a.Max,
+								a.Sign.BitsActuallyUsed(),
+								a.Mantissa.BitsActuallyUsed(), a.Mantissa.GetAllocation(),
+								wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
+							)
+						}
 					}
 					mu.Lock()
 					all.Tensors = append(all.Tensors, analyzed...)

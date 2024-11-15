@@ -28,9 +28,9 @@ type AnalyzedTensor struct {
 	Max      float64           `json:"max"`
 	Inf      int               `json:"inf"`
 	NaN      int               `json:"nan"`
-	Sign     BitKind           `json:"s"`
-	Exponent BitKind           `json:"exp"`
-	Mantissa BitKindBool       `json:"man"`
+	Sign     BitAllocation     `json:"s"`
+	Exponent BitAllocation     `json:"exp"`
+	Mantissa BitAllocation     `json:"man"`
 }
 
 // Len returns the number of bytes this tensor occupies.
@@ -55,53 +55,67 @@ func (a *AnalyzedTensor) IsFloat16Compatible() bool {
 }
 */
 
-type BitKind struct {
+type BitAllocation interface {
+	GetAllocation() int32
+	NumberDifferentValuesSeen() int32
+	BitsActuallyUsed() float64
+	BitsWasted() int32
+}
+
+type BitKindCount struct {
 	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
-	Allocation int `json:"alloc"`
+	Allocation int32 `json:"alloc"`
 	// ValuesSeen is all the different values seen in the tensor. Is at least 1 and at most 1<<Allocation.
 	ValuesSeen CountSet `json:"seen"`
 
 	initialized  bool
-	effective    int
+	effective    int32
 	actuallyUsed float64
-	wasted       int
+	wasted       int32
 }
 
-func (b *BitKind) cache() {
+func (b *BitKindCount) cache() {
 	if !b.initialized {
 		b.effective = b.ValuesSeen.Effective()
 		a := math.Log2(float64(b.effective))
 		b.actuallyUsed = a
-		b.wasted = b.Allocation - int(math.Ceil(a))
+		b.wasted = 0
+		if b.Allocation != 0 {
+			b.wasted = b.Allocation - int32(math.Ceil(a))
+		}
 		b.initialized = true
 	}
 }
 
-func (b *BitKind) NumberDifferentValuesSeen() int {
+func (b *BitKindCount) GetAllocation() int32 {
+	return b.Allocation
+}
+
+func (b *BitKindCount) NumberDifferentValuesSeen() int32 {
 	b.cache()
 	return b.effective
 }
 
-func (b *BitKind) BitsActuallyUsed() float64 {
+func (b *BitKindCount) BitsActuallyUsed() float64 {
 	b.cache()
 	return b.actuallyUsed
 }
 
-func (b *BitKind) BitsWasted() int {
+func (b *BitKindCount) BitsWasted() int32 {
 	b.cache()
 	return b.wasted
 }
 
 type BitKindBool struct {
 	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
-	Allocation int `json:"alloc"`
+	Allocation int32 `json:"alloc"`
 	// ValuesSeen is all the different values seen in the tensor. Is at least 1 and at most 1<<Allocation.
 	ValuesSeen BitSet `json:"seen"`
 
 	initialized  bool
-	effective    int
+	effective    int32
 	actuallyUsed float64
-	wasted       int
+	wasted       int32
 }
 
 func (b *BitKindBool) cache() {
@@ -109,12 +123,19 @@ func (b *BitKindBool) cache() {
 		b.effective = b.ValuesSeen.Effective()
 		a := math.Log2(float64(b.effective))
 		b.actuallyUsed = a
-		b.wasted = b.Allocation - int(math.Ceil(a))
+		b.wasted = 0
+		if b.Allocation != 0 {
+			b.wasted = b.Allocation - int32(math.Ceil(a))
+		}
 		b.initialized = true
 	}
 }
 
-func (b *BitKindBool) NumberDifferentValuesSeen() int {
+func (b *BitKindBool) GetAllocation() int32 {
+	return b.Allocation
+}
+
+func (b *BitKindBool) NumberDifferentValuesSeen() int32 {
 	b.cache()
 	return b.effective
 }
@@ -124,7 +145,7 @@ func (b *BitKindBool) BitsActuallyUsed() float64 {
 	return b.actuallyUsed
 }
 
-func (b *BitKindBool) BitsWasted() int {
+func (b *BitKindBool) BitsWasted() int32 {
 	b.cache()
 	return b.wasted
 }
@@ -268,6 +289,39 @@ func calcF32HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, BitSet,
 	return signs, exponents, mantissas, total / float64(numEl), min, max, inf, nan
 }
 
+// calcI32HistogramAndStats calculates the actual use of sign and mantissa bits
+// plus stats.
+//
+// It does a very simplified analysis for now due to memory usage concern.
+func calcI32HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, float64, int32, int32) {
+	var min int32 = math.MaxInt32
+	var max int32 = math.MinInt32
+	var total int64
+	signs := CountSet{}
+	signs.Resize(1 << 1)
+	mantissas := CountSet{}
+	mantissas.Resize(31)
+	mapped := unsafe.Slice((*int32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.I32.WordSize()))
+	numEl := len(mapped)
+	for _, i := range mapped {
+		signs.Add(int(uint32(i) >> 31))
+		for j := range 31 {
+			if i&(1<<j) != 0 {
+				mantissas.Add(j)
+			}
+		}
+		total += int64(i)
+		if i < min {
+			min = i
+		}
+		if i > max {
+			max = i
+		}
+	}
+	avg := float64(total) / float64(numEl)
+	return signs, mantissas, avg, min, max
+}
+
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
 func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 	switch t.DType {
@@ -282,9 +336,9 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Max:      max,
 			Inf:      inf,
 			NaN:      nan,
-			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
-			Exponent: BitKind{Allocation: 5, ValuesSeen: exponents},
-			Mantissa: BitKindBool{Allocation: 10, ValuesSeen: mantissas},
+			Sign:     &BitKindCount{Allocation: 1, ValuesSeen: signs},
+			Exponent: &BitKindCount{Allocation: 5, ValuesSeen: exponents},
+			Mantissa: &BitKindBool{Allocation: 10, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	case safetensors.BF16:
@@ -298,9 +352,9 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Max:      max,
 			Inf:      inf,
 			NaN:      nan,
-			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
-			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
-			Mantissa: BitKindBool{Allocation: 7, ValuesSeen: mantissas},
+			Sign:     &BitKindCount{Allocation: 1, ValuesSeen: signs},
+			Exponent: &BitKindCount{Allocation: 8, ValuesSeen: exponents},
+			Mantissa: &BitKindBool{Allocation: 7, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	case safetensors.F32:
@@ -314,9 +368,26 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Max:      max,
 			Inf:      inf,
 			NaN:      nan,
-			Sign:     BitKind{Allocation: 1, ValuesSeen: signs},
-			Exponent: BitKind{Allocation: 8, ValuesSeen: exponents},
-			Mantissa: BitKindBool{Allocation: 23, ValuesSeen: mantissas},
+			Sign:     &BitKindCount{Allocation: 1, ValuesSeen: signs},
+			Exponent: &BitKindCount{Allocation: 8, ValuesSeen: exponents},
+			Mantissa: &BitKindBool{Allocation: 23, ValuesSeen: mantissas},
+		}
+		return analyzed, nil
+	case safetensors.I32:
+		// Used in AWQ and GPTQ.
+		signs, mantissas, avg, min, max := calcI32HistogramAndStats(t)
+		analyzed := AnalyzedTensor{
+			Name:     name,
+			DType:    t.DType,
+			NumEl:    int64(len(t.Data)) / int64(t.DType.WordSize()),
+			Avg:      avg,
+			Min:      float64(min),
+			Max:      float64(max),
+			Inf:      0,
+			NaN:      0,
+			Sign:     &BitKindCount{Allocation: 1, ValuesSeen: signs},
+			Exponent: &BitKindCount{Allocation: 0},
+			Mantissa: &BitKindCount{Allocation: 31, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	default:

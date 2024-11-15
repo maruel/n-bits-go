@@ -46,6 +46,13 @@ func cmdMetadata(ctx context.Context, name, hfToken, author, repo, fileglob stri
 			return err
 		}
 		fmt.Printf("%s:\n", filepath.Base(f))
+		types := map[safetensors.DType]int{}
+		for _, t := range s.Tensors {
+			types[t.DType]++
+		}
+		for dtype, count := range types {
+			fmt.Printf("  %d tensors of type %s\n", count, dtype)
+		}
 		for k, v := range s.Metadata {
 			fmt.Printf("- %s: %s\n", k, v)
 		}

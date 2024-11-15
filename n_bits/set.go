@@ -11,9 +11,22 @@ import (
 	"math/bits"
 )
 
+// Note: there's many many high efficiency bit sets but few with counts? I
+// didn't search much yet. Here's a few path to look for. It's mostly important
+// for the mantissa of both float32 and int32.
+// - https://golang.org/x/tools/container/intsets
+// - https://www.gonum.org/
+// - https:/github.com/james-bowman/sparse
+// - https://github.com/RoaringBitmap/roaring
+// Investigate getting rid of the code below.
+
 // BitSet is a bit set.
 //
 // It is designed to be densely stored in JSON.
+//
+// A more performance optimized version would use uint64 so it would be natively
+// using register size. safetensors are generally 4GiB so there's no way to run
+// in 32 bits CPU. I was just lazy.
 type BitSet struct {
 	Len  int
 	Bits []byte
@@ -32,7 +45,7 @@ func (b *BitSet) Set(i int) {
 }
 
 func (b *BitSet) Get(i int) bool {
-	return b.Bits[i/8]&1<<(i%8) != 0
+	return b.Bits[i/8]&(1<<(i%8)) != 0
 }
 
 func (b *BitSet) Expand() []bool {
@@ -45,12 +58,12 @@ func (b *BitSet) Expand() []bool {
 }
 
 // Effective returns the number of non-zero items in the slice.
-func (b *BitSet) Effective() int {
+func (b *BitSet) Effective() int32 {
 	o := 0
 	for _, v := range b.Bits {
 		o += bits.OnesCount8(v)
 	}
-	return o
+	return int32(o)
 }
 
 // MarshalJSON implements json.Marshaler
@@ -121,14 +134,14 @@ func (c *CountSet) Get(i int) uint8 {
 }
 
 // Effective returns the number of non-zero items in the slice.
-func (c *CountSet) Effective() int {
+func (c *CountSet) Effective() int32 {
 	o := 0
 	for _, v := range c.Counts {
 		if v != 0 {
 			o += 1
 		}
 	}
-	return o
+	return int32(o)
 }
 
 // MarshalJSON implements json.Marshaler
