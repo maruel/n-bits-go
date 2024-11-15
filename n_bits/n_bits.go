@@ -301,6 +301,7 @@ func calcI32HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, float64
 	signs.Resize(1 << 1)
 	mantissas := CountSet{}
 	mantissas.Resize(31)
+	// #nosec G103
 	mapped := unsafe.Slice((*int32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.I32.WordSize()))
 	numEl := len(mapped)
 	for _, i := range mapped {
