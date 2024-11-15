@@ -5,21 +5,47 @@
 package n_bits
 
 import (
+	"encoding/json"
 	"strconv"
 	"testing"
 )
 
 func TestBitSet(t *testing.T) {
 	// Test Resize
-	b := &BitSet{}
+	t.Run("0", func(t *testing.T) {
+		l := 0
+		b := &BitSet{}
+		b.Resize(l)
+		if b.Len != l {
+			t.Errorf("expected length 100, got %d", b.Len)
+		}
+		if b.Effective() != 0 {
+			t.Errorf("expected 0 effective bits, got %d", b.Effective())
+		}
+		bits := b.Expand()
+		if len(bits) != b.Len {
+			t.Errorf("expected %d bits in expanded slice, got %d", b.Len, len(bits))
+		}
+		d, err := b.MarshalJSON()
+		if err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		var got BitSet
+		if err := got.UnmarshalJSON(d); err != nil {
+			t.Errorf("unexpected error: %v", err)
+		}
+		if got.Len != b.Len {
+			t.Errorf("expected length %d, got %d\nb:   %+v\ngot: %+v", b.Len, got.Len, b, &got)
+		}
+	})
 	for l := 60; l < 64*3+2; l++ {
 		t.Run(strconv.Itoa(l), func(t *testing.T) {
+			b := &BitSet{}
 			b.Resize(l)
 			if b.Len != l {
 				t.Errorf("expected length 100, got %d", b.Len)
 			}
 
-			// Test Set and Get
 			b.Set(10)
 			b.Set(50)
 			if l > 99 {
@@ -51,12 +77,10 @@ func TestBitSet(t *testing.T) {
 				}
 			}
 
-			// Test Effective
 			if l == 100 && b.Effective() != 3 {
 				t.Errorf("expected 3 effective bits, got %d", b.Effective())
 			}
 
-			// Test Expand
 			bits := b.Expand()
 			if len(bits) != b.Len {
 				t.Errorf("expected %d bits in expanded slice, got %d", b.Len, len(bits))
@@ -73,13 +97,12 @@ func TestBitSet(t *testing.T) {
 				}
 			}
 
-			// Test JSON Marshal/Unmarshal
-			jsonData, err := b.MarshalJSON()
+			d, err := b.MarshalJSON()
 			if err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 			var got BitSet
-			if err := got.UnmarshalJSON(jsonData); err != nil {
+			if err := got.UnmarshalJSON(d); err != nil {
 				t.Errorf("unexpected error: %v", err)
 			}
 			if got.Len != b.Len {
@@ -91,5 +114,58 @@ func TestBitSet(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestCountSet(t *testing.T) {
+	c := CountSet{Counts: make([]uint8, 5)}
+	c.Resize(10)
+	if len(c.Counts) != 10 {
+		t.Errorf("Expected length 10, got %d", len(c.Counts))
+	}
+	c.Add(0)
+	c.Add(0)
+	c.Add(0)
+	if c.Counts[0] != 3 {
+		t.Errorf("Expected count 3, got %d", c.Counts[0])
+	}
+	for range 256 {
+		c.Add(0)
+	}
+	if c.Counts[0] != 255 {
+		t.Errorf("Expected count 255, got %d", c.Counts[0])
+	}
+	if c.Get(1) != 0 {
+		t.Errorf("Expected 0, got %d", c.Get(1))
+	}
+	c.Counts = []uint8{1, 0, 3, 0, 0}
+	if c.Effective() != 2 {
+		t.Errorf("Expected 2 effective items, got %d", c.Effective())
+	}
+
+	c = CountSet{}
+	b, err := json.Marshal(&c)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	got := CountSet{}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if len(got.Counts) != 0 {
+		t.Errorf("Unexpected deserialized value: %v", got.Counts)
+	}
+
+	c = CountSet{Counts: []uint8{1, 2, 3}}
+	b, err = json.Marshal(&c)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	got = CountSet{}
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+	if len(got.Counts) != 3 || got.Counts[0] != 1 || got.Counts[1] != 2 || got.Counts[2] != 3 {
+		t.Errorf("Unexpected deserialized value: %v", got.Counts)
 	}
 }
