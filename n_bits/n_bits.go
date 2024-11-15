@@ -369,6 +369,37 @@ func calcI32HistogramAndStats(t safetensors.Tensor) (CountSet, CountSet, float64
 	return signs, mantissas, avg, min, max
 }
 
+// calcU32HistogramAndStats calculates the actual use of sign and mantissa bits
+// plus stats.
+//
+// It does a very simplified analysis for now due to memory usage concern.
+func calcU32HistogramAndStats(t safetensors.Tensor) (CountSet, float64, uint32, uint32) {
+	var min uint32 = math.MaxUint32
+	var max uint32 = 0
+	var total uint64
+	mantissas := CountSet{}
+	mantissas.Resize(32)
+	// #nosec G103
+	mapped := unsafe.Slice((*uint32)(unsafe.Pointer(unsafe.SliceData(t.Data))), len(t.Data)/int(safetensors.U32.WordSize()))
+	numEl := len(mapped)
+	for _, i := range mapped {
+		for j := range 32 {
+			if i&(1<<j) != 0 {
+				mantissas.Add(j)
+			}
+		}
+		total += uint64(i)
+		if i < min {
+			min = i
+		}
+		if i > max {
+			max = i
+		}
+	}
+	avg := float64(total) / float64(numEl)
+	return mantissas, avg, min, max
+}
+
 // AnalyzeTensor analyzes how well used the bits in a tensor are used.
 func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 	switch t.DType {
@@ -435,6 +466,23 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			Sign:     &BitKindCount{Allocation: 1, ValuesSeen: signs},
 			Exponent: &BitKindCount{Allocation: 0},
 			Mantissa: &BitMaskCount{Allocation: 31, ValuesSeen: mantissas},
+		}
+		return analyzed, nil
+	case safetensors.U32:
+		// Used in MLX.
+		mantissas, avg, min, max := calcU32HistogramAndStats(t)
+		analyzed := AnalyzedTensor{
+			Name:     name,
+			DType:    t.DType,
+			NumEl:    int64(len(t.Data)) / int64(t.DType.WordSize()),
+			Avg:      avg,
+			Min:      float64(min),
+			Max:      float64(max),
+			Inf:      0,
+			NaN:      0,
+			Sign:     &BitKindCount{Allocation: 0},
+			Exponent: &BitKindCount{Allocation: 0},
+			Mantissa: &BitMaskCount{Allocation: 32, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	default:

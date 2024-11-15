@@ -169,12 +169,20 @@ func cmdAnalyze(ctx context.Context, hfToken, author, repo, fileglob string, reT
 								a.Mantissa.BitsActuallyUsed(), a.Mantissa.GetAllocation(),
 								wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
 							)
-						} else {
+						} else if a.Sign.GetAllocation() != 0 {
 							// Integers.
 							fmt.Printf("%-*s: %*dw  avg=%11.0f [%11.0f, %10.0f]  sign=%1.0fbit  mantissa=%2.0f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
 								maxNameLen, a.Name, maxSizeLen, a.NumEl,
 								a.Avg, a.Min, a.Max,
 								a.Sign.BitsActuallyUsed(),
+								a.Mantissa.BitsActuallyUsed(), a.Mantissa.GetAllocation(),
+								wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
+							)
+						} else {
+							// Unsigned Integers.
+							fmt.Printf("%-*s: %*dw  avg=%11.0f [%11.0f, %10.0f]  mantissa=%2.0f/%dbits  wasted=%2d/%dbits %4.1f%%  %8s\n",
+								maxNameLen, a.Name, maxSizeLen, a.NumEl,
+								a.Avg, a.Min, a.Max,
 								a.Mantissa.BitsActuallyUsed(), a.Mantissa.GetAllocation(),
 								wasted, bits, ratio*float64(wasted), humanBytes(wasted*a.NumEl/8),
 							)
