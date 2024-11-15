@@ -6,12 +6,17 @@ package main
 
 import (
 	"context"
+	"regexp"
 	"testing"
 )
 
 func TestCmdAnalyze(t *testing.T) {
 	// Load live a relatively small (151MiB) model.
-	if err := cmdAnalyze(context.Background(), "", "openai", "whisper-tiny", "", ""); err != nil {
+	reTensors, err := regexp.Compile(".*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cmdAnalyze(context.Background(), "", "openai", "whisper-tiny", "", reTensors, ""); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -136,6 +137,7 @@ func mainImpl(args []string) error {
 		fs.Var(&hfToken, "hf-token", "HuggingFace token")
 		fs.Var(&hfRepo, "hf-repo", "HuggingFace repository, e.g. \"meta-llama/Llama-3.2-1B\"")
 		hfGlob := fs.String("hf-glob", "", "Glob to use when loading files (default:*.safetensors)")
+		tensors := fs.String("tensors", ".*", "regexp to filter tensors on")
 		out := fs.String("json", "", "Save stats as a JSON file")
 		if fs.Parse(args[1:]) != nil {
 			return context.Canceled
@@ -149,7 +151,12 @@ func mainImpl(args []string) error {
 		if hfRepo == "" {
 			return errors.New("-hf-repo is required")
 		}
-		return cmdAnalyze(ctx, hfToken.String(), hfRepo.Org(), hfRepo.Repo(), *hfGlob, *out)
+		reTensors, err := regexp.Compile(*tensors)
+		if err != nil {
+			return fmt.Errorf("-tensors regexp is invalid: %w", err)
+		}
+		return cmdAnalyze(ctx, hfToken.String(), hfRepo.Org(), hfRepo.Repo(), *hfGlob, reTensors, *out)
+
 	case "metadata":
 		var hfToken hfTokenArg
 		var hfRepo hfRepoArg
@@ -182,6 +189,7 @@ func mainImpl(args []string) error {
 			}
 		}
 		return cmdMetadata(ctx, *name, hfToken.String(), hfRepo.Org(), hfRepo.Repo(), *hfGlob)
+
 	default:
 		fs.Usage()
 		return context.Canceled

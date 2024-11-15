@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"sync"
@@ -35,7 +36,7 @@ func humanBytes(i int64) string {
 	}
 }
 
-func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan struct{}) ([]n_bits.AnalyzedTensor, error) {
+func processSafetensorsFile(ctx context.Context, name string, reTensors *regexp.Regexp, cpuLimit chan struct{}) ([]n_bits.AnalyzedTensor, error) {
 	s := safetensors.Mapped{}
 	if err := s.Open(name); err != nil {
 		return nil, err
@@ -44,11 +45,17 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	slog.Info("analyze", "file", filepath.Base(name), "num_tensors", len(s.Tensors))
-	analyzed := make([]n_bits.AnalyzedTensor, len(s.Tensors))
+	toAnalyze := make([]int, 0, len(s.Tensors))
+	for i, tensor := range s.Tensors {
+		if reTensors.MatchString(tensor.Name) {
+			toAnalyze = append(toAnalyze, i)
+		}
+	}
+	slog.Info("analyze", "file", filepath.Base(name), "num_tensors", len(s.Tensors), "to_analyze", len(toAnalyze))
+	analyzed := make([]n_bits.AnalyzedTensor, len(toAnalyze))
 	// Analyze tensors concurrently.
 	eg := errgroup.Group{}
-	for i, tensor := range s.Tensors {
+	for j, i := range toAnalyze {
 		eg.Go(func() error {
 			cpuLimit <- struct{}{}
 			defer func() {
@@ -58,8 +65,9 @@ func processSafetensorsFile(ctx context.Context, name string, cpuLimit chan stru
 				return err2
 			}
 			var err2 error
-			slog.Info("analyze", "file", filepath.Base(name), "name", tensor.Name, "dtype", tensor.DType)
-			analyzed[i], err2 = n_bits.AnalyzeTensor(tensor.Name, tensor)
+			n := s.Tensors[i].Name
+			slog.Info("analyze", "file", filepath.Base(name), "name", n, "dtype", s.Tensors[i].DType)
+			analyzed[j], err2 = n_bits.AnalyzeTensor(n, s.Tensors[i])
 			return err2
 		})
 	}
@@ -81,7 +89,7 @@ func calcNameLen(tensors []n_bits.AnalyzedTensor) (int, int) {
 	return maxNameLen, maxSizeLen
 }
 
-func cmdAnalyze(ctx context.Context, hfToken, author, repo, fileglob, out string) error {
+func cmdAnalyze(ctx context.Context, hfToken, author, repo, fileglob string, reTensors *regexp.Regexp, out string) error {
 	hf, err := huggingface.New(hfToken)
 	if err != nil {
 		return err
@@ -140,7 +148,7 @@ func cmdAnalyze(ctx context.Context, hfToken, author, repo, fileglob, out string
 					// TODO: This prints stuff out of order.
 					fmt.Printf("Processing %s:\n", filepath.Base(f))
 					// TODO: os.Stat() the file and "consume" this amount of ram from the throttler.
-					analyzed, err2 := processSafetensorsFile(ctx2, f, cpuLimit)
+					analyzed, err2 := processSafetensorsFile(ctx2, f, reTensors, cpuLimit)
 					if err2 != nil {
 						return err2
 					}
