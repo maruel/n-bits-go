@@ -56,8 +56,10 @@ func cmdMetadata(ctx context.Context, name, hfToken, author, repo, fileglob stri
 		for k, v := range s.Metadata {
 			fmt.Printf("- %s: %s\n", k, v)
 		}
-		s.Close()
-		if err := ctx.Err(); err != nil {
+		if err = s.Close(); err != nil {
+			return err
+		}
+		if err = ctx.Err(); err != nil {
 			return err
 		}
 	}

@@ -149,7 +149,7 @@ func TestCountSet(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	got := CountSet{}
-	if err := json.Unmarshal(b, &got); err != nil {
+	if err = json.Unmarshal(b, &got); err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 	if len(got.Counts) != 0 {

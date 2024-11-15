@@ -150,6 +150,52 @@ func (b *BitKindBool) BitsWasted() int32 {
 	return b.wasted
 }
 
+// BitMaskCount works for ints where the number of values is too large. Instead
+// just look at the individual bits. It's not awesome but better than nothing.
+type BitMaskCount struct {
+	// Allocation is the number of bits allocated for this kind of value (sign, exponent, mantissa).
+	Allocation int32 `json:"alloc"`
+	// ValuesSeen is all the different values seen in the tensor. Is at least 1 and at most 1<<Allocation.
+	ValuesSeen CountSet `json:"seen"`
+
+	initialized  bool
+	effective    int32
+	actuallyUsed int32
+	wasted       int32
+}
+
+func (b *BitMaskCount) cache() {
+	if !b.initialized {
+		// We don't log2() here.
+		b.actuallyUsed = b.ValuesSeen.Effective()
+		b.effective = 1 << b.actuallyUsed
+		b.wasted = 0
+		if b.Allocation != 0 {
+			b.wasted = b.Allocation - b.actuallyUsed
+		}
+		b.initialized = true
+	}
+}
+
+func (b *BitMaskCount) GetAllocation() int32 {
+	return b.Allocation
+}
+
+func (b *BitMaskCount) NumberDifferentValuesSeen() int32 {
+	b.cache()
+	return b.effective
+}
+
+func (b *BitMaskCount) BitsActuallyUsed() float64 {
+	b.cache()
+	return float64(b.actuallyUsed)
+}
+
+func (b *BitMaskCount) BitsWasted() int32 {
+	b.cache()
+	return b.wasted
+}
+
 //
 
 var f16Lookup [1 << 16]float32
@@ -388,7 +434,7 @@ func AnalyzeTensor(name string, t safetensors.Tensor) (AnalyzedTensor, error) {
 			NaN:      0,
 			Sign:     &BitKindCount{Allocation: 1, ValuesSeen: signs},
 			Exponent: &BitKindCount{Allocation: 0},
-			Mantissa: &BitKindCount{Allocation: 31, ValuesSeen: mantissas},
+			Mantissa: &BitMaskCount{Allocation: 31, ValuesSeen: mantissas},
 		}
 		return analyzed, nil
 	default:
