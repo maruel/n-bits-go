@@ -6,7 +6,7 @@ require (
 	github.com/lmittmann/tint v1.0.5
 	github.com/maruel/floatx v1.1.0
 	github.com/maruel/huggingface v0.0.0-20241109152749-1c0489b4de11
-	github.com/maruel/safetensors v1.1.0
+	github.com/maruel/safetensors v1.2.0
 	github.com/mattn/go-colorable v0.1.13
 	github.com/mattn/go-isatty v0.0.20
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
