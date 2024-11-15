@@ -6,6 +6,7 @@ package n_bits
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"math/bits"
@@ -23,17 +24,13 @@ import (
 // BitSet is a bit set.
 //
 // It is designed to be densely stored in JSON.
-//
-// A more performance optimized version would use uint64 so it would be natively
-// using register size. safetensors are generally 4GiB so there's no way to run
-// in 32 bits CPU. I was just lazy.
 type BitSet struct {
 	Len  int
-	Bits []byte
+	Bits []uint64
 }
 
 func (b *BitSet) Resize(l int) {
-	d := make([]byte, (l+7)/8)
+	d := make([]uint64, (l+63)/64)
 	// Backup the old data if any.
 	copy(b.Bits, d)
 	b.Len = l
@@ -41,11 +38,11 @@ func (b *BitSet) Resize(l int) {
 }
 
 func (b *BitSet) Set(i int) {
-	b.Bits[i/8] |= 1 << (i % 8)
+	b.Bits[i/64] |= 1 << (i % 64)
 }
 
 func (b *BitSet) Get(i int) bool {
-	return b.Bits[i/8]&(1<<(i%8)) != 0
+	return b.Bits[i/64]&(1<<(i%64)) != 0
 }
 
 func (b *BitSet) Expand() []bool {
@@ -61,18 +58,25 @@ func (b *BitSet) Expand() []bool {
 func (b *BitSet) Effective() int32 {
 	o := 0
 	for _, v := range b.Bits {
-		o += bits.OnesCount8(v)
+		o += bits.OnesCount64(v)
 	}
 	return int32(o)
 }
 
 // MarshalJSON implements json.Marshaler
+//
+// The first byte is the number of valid bits in the last uint64. If 0, it
+// means 64.
 func (b *BitSet) MarshalJSON() ([]byte, error) {
 	var dst []byte
 	if b.Len != 0 {
-		d := make([]byte, 1, len(b.Bits)+1)
-		d[0] = byte(b.Len % 8)
-		d = append(d, b.Bits...)
+		d := make([]byte, 1, len(b.Bits)*8+1)
+		d[0] = byte(b.Len % 64)
+		var buf [8]byte
+		for _, v := range b.Bits {
+			binary.LittleEndian.PutUint64(buf[:], v)
+			d = append(d, buf[:]...)
+		}
 		dst = make([]byte, base64.RawStdEncoding.EncodedLen(len(d)))
 		base64.RawStdEncoding.Encode(dst, d)
 	}
@@ -97,12 +101,20 @@ func (b *BitSet) UnmarshalJSON(data []byte) error {
 	if len(d) == 0 {
 		return errors.New("invalid BitSet base64 encoding")
 	}
-	if d[0] > 7 {
+	last := d[0]
+	if last > 63 {
 		return errors.New("invalid BitSet encoding")
 	}
-	b.Bits = make([]byte, len(d)-1)
-	copy(b.Bits, d[1:])
-	b.Len = (len(b.Bits)-1)*8 + int(d[0])
+	if last == 0 {
+		last = 64
+	}
+	l := (len(d) + 6) / 8
+	b.Bits = make([]uint64, l)
+	for i := range b.Bits {
+		// Note: Lots of unaligned reads.
+		b.Bits[i] = binary.LittleEndian.Uint64(d[1+i*8 : 9+i*8])
+	}
+	b.Len = (l-1)*64 + int(last)
 	return nil
 }
 
